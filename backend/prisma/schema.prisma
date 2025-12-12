@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model ilce {
+  ilce_id       Int             @id @default(autoincrement())
+  ilce_ad       String?         @db.VarChar(50)
+  nufus         Int?
+  ort_gelir     Decimal?        @db.Decimal(10, 2)
+  musteri       musteri[]
+  rakip_isletme rakip_isletme[]
+  sube          sube[]
+}
+
+model musteri {
+  musteri_id   Int       @id @default(autoincrement())
+  ad           String?   @db.VarChar(50)
+  soyad        String?   @db.VarChar(50)
+  cinsiyet     String?   @db.VarChar(10)
+  dogum_tarihi DateTime? @db.Date
+  ilce_id      Int?
+  yas          Int?
+  segment      String?   @db.VarChar(10)
+  ilce         ilce?     @relation(fields: [ilce_id], references: [ilce_id], onDelete: SetNull, map: "fk_musteri_ilce")
+  randevu      randevu[]
+
+  @@index([ilce_id], map: "fk_musteri_ilce")
+}
+
+model hizmet {
+  hizmet_id     Int       @id @default(autoincrement())
+  hizmet_ad     String?   @db.VarChar(100)
+  fiyat_araligi String?   @db.VarChar(50)
+  randevu       randevu[]
+}
+
+model randevu {
+  randevu_id  Int          @id @default(autoincrement())
+  musteri_id  Int?
+  hizmet_id   Int?
+  fiyat       Decimal?     @db.Decimal(10, 2)
+  tarih       DateTime?    @db.Date
+  saat        String?      @db.VarChar(10)
+  kampanya_id Int?
+  musteri     musteri?     @relation(fields: [musteri_id], references: [musteri_id], onDelete: SetNull, map: "fk_randevu_musteri")
+  hizmet      hizmet?      @relation(fields: [hizmet_id], references: [hizmet_id], onDelete: SetNull, map: "fk_randevu_hizmet")
+  kampanya    kampanya?    @relation(fields: [kampanya_id], references: [kampanya_id], onDelete: SetNull, map: "fk_randevu_kampanya")
+  memnuniyet  memnuniyet?
+
+  @@index([musteri_id], map: "fk_randevu_musteri")
+  @@index([hizmet_id], map: "fk_randevu_hizmet")
+  @@index([kampanya_id], map: "fk_randevu_kampanya")
+}
+
+model memnuniyet {
+  memnuniyet_id Int       @id @default(autoincrement())
+  randevu_id    Int       @unique
+  puan          Int?
+  yorum         String?   @db.Text
+  tarih         DateTime? @db.Date
+  randevu       randevu   @relation(fields: [randevu_id], references: [randevu_id], onDelete: Cascade, map: "fk_memnuniyet_randevu")
+
+  @@index([randevu_id], map: "fk_memnuniyet_randevu")
+}
+
+model kampanya {
+  kampanya_id   Int       @id @default(autoincrement())
+  kampanya_ad   String?   @db.VarChar(100)
+  baslangic     DateTime? @db.Date
+  bitis         DateTime? @db.Date
+  indirim_orani Int?
+  randevu       randevu[]
+}
+
+model rakip_isletme {
+  rakip_id     Int       @id @default(autoincrement())
+  ilce_id      Int?
+  rakip_ad     String?   @db.VarChar(100)
+  hizmet_turu  String?   @db.VarChar(100)
+  ilce         ilce?     @relation(fields: [ilce_id], references: [ilce_id], onDelete: SetNull, map: "fk_rakip_isletme_ilce")
+
+  @@index([ilce_id], map: "fk_rakip_isletme_ilce")
+}
+
+model sube {
+  sube_id       Int           @id @default(autoincrement())
+  sube_ad       String?       @db.VarChar(100)
+  adres         String?       @db.VarChar(200)
+  telefon       String?       @db.VarChar(20)
+  acilis_tarihi DateTime?     @db.Date
+  ilce_id       Int?
+  ilce          ilce?         @relation(fields: [ilce_id], references: [ilce_id], onDelete: SetNull, map: "fk_sube_ilce")
+  sube_masraf   sube_masraf[]
+
+  @@index([ilce_id], map: "fk_sube_ilce")
+}
+
+model sube_masraf {
+  masraf_id Int       @id @default(autoincrement())
+  sube_id   Int?
+  tutar     Decimal?  @db.Decimal(10, 2)
+  tarih     DateTime? @db.Date
+  aciklama  String?   @db.VarChar(200)
+  sube      sube?     @relation(fields: [sube_id], references: [sube_id], onDelete: Cascade, map: "fk_sube_masraf_sube")
+
+  @@index([sube_id], map: "fk_sube_masraf_sube")
+}
+

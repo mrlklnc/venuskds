@@ -16,7 +16,6 @@ router.get('/', async (req, res) => {
     const [data, total] = await Promise.all([
       prisma.musteri.findMany({
         where,
-        include: { ilce: true },
         skip,
         take: parseInt(limit),
         orderBy: { musteri_id: 'desc' }
@@ -43,7 +42,7 @@ router.get('/:id', async (req, res) => {
   try {
     const musteri = await prisma.musteri.findUnique({
       where: { musteri_id: parseInt(req.params.id) },
-      include: { ilce: true, randevu: { include: { hizmet: true } } }
+      include: { randevu: { include: { hizmet: true } } }
     });
     if (!musteri) return res.status(404).json({ error: 'Müşteri not found' });
     res.json(musteri);

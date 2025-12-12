@@ -1,30 +1,36 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext } from "react";
 
-export const useAuth = () => {
+const AuthContext = createContext();
+
+export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    setIsAuthenticated(!!token);
+    const storedAuth = localStorage.getItem("isAuthenticated");
+    if (storedAuth === "true") {
+      setIsAuthenticated(true);
+    }
     setLoading(false);
   }, []);
 
-  const login = (username, password) => {
-    // Simple authentication - in production, this would call an API
-    if (username === 'admin' && password === 'admin123') {
-      localStorage.setItem('authToken', 'mock-token-' + Date.now());
-      setIsAuthenticated(true);
-      return true;
-    }
-    return false;
+  const login = () => {
+    localStorage.setItem("isAuthenticated", "true");
+    setIsAuthenticated(true);
   };
 
   const logout = () => {
-    localStorage.removeItem('authToken');
+    localStorage.removeItem("isAuthenticated");
     setIsAuthenticated(false);
   };
 
-  return { isAuthenticated, loading, login, logout };
-};
+  return (
+    <AuthContext.Provider value={{ isAuthenticated, login, logout, loading }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
+export function useAuth() {
+  return useContext(AuthContext);
+}

@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { musteriService } from '../services/musteriService';
-import { randevuService } from '../services/randevuService';
-import { hizmetService } from '../services/hizmetService';
-import { kampanyaService } from '../services/kampanyaService';
-import { rakipService } from '../services/rakipService';
-import { memnuniyetService } from '../services/memnuniyetService';
-import { ilceService } from '../services/ilceService';
-import { formatCurrency, formatDate } from '../utils/format';
-import { Users, Sparkles, Building2, Gift, TrendingUp, Lightbulb } from 'lucide-react';
+import { 
+  getMusteriIlce, 
+  getAylikRandevu, 
+  getHizmetPerformans, 
+  getRakipAnalizi, 
+  getKampanyaAnalizi, 
+  getKarZarar 
+} from '../services/dssService';
+import { Users, Sparkles, Building2, Gift } from 'lucide-react';
 import CustomerAnalytics from '../components/charts/CustomerAnalytics';
 import ServiceAnalytics from '../components/charts/ServiceAnalytics';
 import CompetitorAnalytics from '../components/charts/CompetitorAnalytics';
@@ -26,13 +26,12 @@ export default function Analizler() {
   const [activeTab, setActiveTab] = useState('musteri');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({
-    customers: [],
-    appointments: [],
-    services: [],
-    campaigns: [],
-    competitors: [],
-    satisfactions: [],
-    districts: [],
+    musteriIlce: [],
+    aylikRandevu: [],
+    hizmetPerformans: [],
+    rakipAnalizi: [],
+    kampanyaAnalizi: [],
+    karZarar: [],
   });
 
   useEffect(() => {
@@ -42,24 +41,22 @@ export default function Analizler() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [customersRes, appointmentsRes, servicesRes, campaignsRes, competitorsRes, satisfactionsRes, districtsRes] = await Promise.all([
-        musteriService.getAll({ limit: 10000 }),
-        randevuService.getAll({ limit: 10000 }),
-        hizmetService.getAll({ limit: 1000 }),
-        kampanyaService.getAll(),
-        rakipService.getAll({ limit: 1000 }),
-        memnuniyetService.getAll({ limit: 1000 }),
-        ilceService.getAll(),
+      const [musteriIlceRes, aylikRandevuRes, hizmetPerformansRes, rakipAnaliziRes, kampanyaAnaliziRes, karZararRes] = await Promise.all([
+        getMusteriIlce(),
+        getAylikRandevu(),
+        getHizmetPerformans(),
+        getRakipAnalizi(),
+        getKampanyaAnalizi(),
+        getKarZarar(),
       ]);
 
       setData({
-        customers: customersRes.data.data || customersRes.data || [],
-        appointments: appointmentsRes.data.data || appointmentsRes.data || [],
-        services: servicesRes.data.data || servicesRes.data || [],
-        campaigns: campaignsRes.data || [],
-        competitors: competitorsRes.data.data || competitorsRes.data || [],
-        satisfactions: satisfactionsRes.data.data || satisfactionsRes.data || [],
-        districts: districtsRes.data || [],
+        musteriIlce: musteriIlceRes.data || [],
+        aylikRandevu: aylikRandevuRes.data || [],
+        hizmetPerformans: hizmetPerformansRes.data || [],
+        rakipAnalizi: rakipAnaliziRes.data || [],
+        kampanyaAnalizi: kampanyaAnaliziRes.data || [],
+        karZarar: karZararRes.data || [],
       });
     } catch (error) {
       console.error('Error fetching analytics data:', error);
@@ -87,8 +84,8 @@ export default function Analizler() {
 
       {/* Quick Overview Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <MusteriIlceChart />
-        <RandevuTrendChart />
+        <MusteriIlceChart data={data.musteriIlce} />
+        <RandevuTrendChart data={data.aylikRandevu} />
       </div>
 
       {/* Tabs */}

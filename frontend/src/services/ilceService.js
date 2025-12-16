@@ -1,7 +1,7 @@
-import api from './api';
+import apiClient from './apiClient';
 
 export const ilceService = {
-  getAll: () => api.get('/ilce'),
-  getById: (id) => api.get(`/ilce/${id}`),
+  getAll: () => apiClient.get('/ilce'),
+  getById: (id) => apiClient.get(`/ilce/${id}`),
 };
 

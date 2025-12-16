@@ -1,10 +1,10 @@
-import api from './api';
+import apiClient from './apiClient';
 
 export const rakipService = {
-  getAll: (params = {}) => api.get('/rakip', { params }),
-  getById: (id) => api.get(`/rakip/${id}`),
-  create: (data) => api.post('/rakip', data),
-  update: (id, data) => api.put(`/rakip/${id}`, data),
-  delete: (id) => api.delete(`/rakip/${id}`),
+  getAll: (params = {}) => apiClient.get('/rakip', { params }),
+  getById: (id) => apiClient.get(`/rakip/${id}`),
+  create: (data) => apiClient.post('/rakip', data),
+  update: (id, data) => apiClient.put(`/rakip/${id}`, data),
+  delete: (id) => apiClient.delete(`/rakip/${id}`),
 };
 

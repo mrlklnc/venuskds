@@ -1,17 +1,17 @@
 import express from 'express';
-import { prisma } from '../server.js';
+import pool from '../lib/db.js';
 
 const router = express.Router();
 
 // GET all kampanya
 router.get('/', async (req, res) => {
   try {
-    const kampanya = await prisma.kampanya.findMany({
-      orderBy: { baslangic: 'desc' },
-      include: { randevu: true }
-    });
-    res.json(kampanya);
+    const [data] = await pool.execute(
+      'SELECT * FROM kampanya ORDER BY baslangic DESC'
+    );
+    res.json(data);
   } catch (error) {
+    console.error('Error fetching kampanya list:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -19,13 +19,18 @@ router.get('/', async (req, res) => {
 // GET single kampanya
 router.get('/:id', async (req, res) => {
   try {
-    const kampanya = await prisma.kampanya.findUnique({
-      where: { kampanya_id: parseInt(req.params.id) },
-      include: { randevu: true }
-    });
-    if (!kampanya) return res.status(404).json({ error: 'Kampanya not found' });
-    res.json(kampanya);
+    const [rows] = await pool.execute(
+      'SELECT * FROM kampanya WHERE kampanya_id = ?',
+      [parseInt(req.params.id)]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Kampanya not found' });
+    }
+
+    res.json(rows[0]);
   } catch (error) {
+    console.error('Error fetching kampanya:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -33,9 +38,21 @@ router.get('/:id', async (req, res) => {
 // POST create kampanya
 router.post('/', async (req, res) => {
   try {
-    const kampanya = await prisma.kampanya.create({ data: req.body });
-    res.status(201).json(kampanya);
+    const { kampanya_ad, aciklama, hizmet_id, indirim_orani, baslangic, bitis } = req.body;
+
+    const [result] = await pool.execute(
+      'INSERT INTO kampanya (kampanya_ad, aciklama, hizmet_id, indirim_orani, baslangic, bitis) VALUES (?, ?, ?, ?, ?, ?)',
+      [kampanya_ad, aciklama, hizmet_id, indirim_orani, baslangic, bitis]
+    );
+
+    const [newKampanya] = await pool.execute(
+      'SELECT * FROM kampanya WHERE kampanya_id = ?',
+      [result.insertId]
+    );
+
+    res.status(201).json(newKampanya[0]);
   } catch (error) {
+    console.error('Error creating kampanya:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -43,12 +60,22 @@ router.post('/', async (req, res) => {
 // PUT update kampanya
 router.put('/:id', async (req, res) => {
   try {
-    const kampanya = await prisma.kampanya.update({
-      where: { kampanya_id: parseInt(req.params.id) },
-      data: req.body
-    });
-    res.json(kampanya);
+    const { kampanya_ad, aciklama, hizmet_id, indirim_orani, baslangic, bitis } = req.body;
+    const kampanya_id = parseInt(req.params.id);
+
+    await pool.execute(
+      'UPDATE kampanya SET kampanya_ad = ?, aciklama = ?, hizmet_id = ?, indirim_orani = ?, baslangic = ?, bitis = ? WHERE kampanya_id = ?',
+      [kampanya_ad, aciklama, hizmet_id, indirim_orani, baslangic, bitis, kampanya_id]
+    );
+
+    const [updatedKampanya] = await pool.execute(
+      'SELECT * FROM kampanya WHERE kampanya_id = ?',
+      [kampanya_id]
+    );
+
+    res.json(updatedKampanya[0]);
   } catch (error) {
+    console.error('Error updating kampanya:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -56,14 +83,20 @@ router.put('/:id', async (req, res) => {
 // DELETE kampanya
 router.delete('/:id', async (req, res) => {
   try {
-    await prisma.kampanya.delete({
-      where: { kampanya_id: parseInt(req.params.id) }
-    });
+    const [result] = await pool.execute(
+      'DELETE FROM kampanya WHERE kampanya_id = ?',
+      [parseInt(req.params.id)]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Kampanya not found' });
+    }
+
     res.json({ message: 'Kampanya deleted successfully' });
   } catch (error) {
+    console.error('Error deleting kampanya:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
 export default router;
-

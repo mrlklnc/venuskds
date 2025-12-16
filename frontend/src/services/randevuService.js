@@ -1,10 +1,10 @@
-import api from './api';
+import apiClient from './apiClient';
 
 export const randevuService = {
-  getAll: (params = {}) => api.get('/randevu', { params }),
-  getById: (id) => api.get(`/randevu/${id}`),
-  create: (data) => api.post('/randevu', data),
-  update: (id, data) => api.put(`/randevu/${id}`, data),
-  delete: (id) => api.delete(`/randevu/${id}`),
+  getAll: (params = {}) => apiClient.get('/randevu', { params }),
+  getById: (id) => apiClient.get(`/randevu/${id}`),
+  create: (data) => apiClient.post('/randevu', data),
+  update: (id, data) => apiClient.put(`/randevu/${id}`, data),
+  delete: (id) => apiClient.delete(`/randevu/${id}`),
 };
 

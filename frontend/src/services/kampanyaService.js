@@ -1,10 +1,10 @@
-import api from './api';
+import apiClient from './apiClient';
 
 export const kampanyaService = {
-  getAll: () => api.get('/kampanya'),
-  getById: (id) => api.get(`/kampanya/${id}`),
-  create: (data) => api.post('/kampanya', data),
-  update: (id, data) => api.put(`/kampanya/${id}`, data),
-  delete: (id) => api.delete(`/kampanya/${id}`),
+  getAll: () => apiClient.get('/kampanya'),
+  getById: (id) => apiClient.get(`/kampanya/${id}`),
+  create: (data) => apiClient.post('/kampanya', data),
+  update: (id, data) => apiClient.put(`/kampanya/${id}`, data),
+  delete: (id) => apiClient.delete(`/kampanya/${id}`),
 };
 

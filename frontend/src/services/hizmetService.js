@@ -1,10 +1,10 @@
-import api from './api';
+import apiClient from './apiClient';
 
 export const hizmetService = {
-  getAll: (params = {}) => api.get('/hizmet', { params }),
-  getById: (id) => api.get(`/hizmet/${id}`),
-  create: (data) => api.post('/hizmet', data),
-  update: (id, data) => api.put(`/hizmet/${id}`, data),
-  delete: (id) => api.delete(`/hizmet/${id}`),
+  getAll: (params = {}) => apiClient.get('/hizmet', { params }),
+  getById: (id) => apiClient.get(`/hizmet/${id}`),
+  create: (data) => apiClient.post('/hizmet', data),
+  update: (id, data) => apiClient.put(`/hizmet/${id}`, data),
+  delete: (id) => apiClient.delete(`/hizmet/${id}`),
 };
 

@@ -1,96 +1,87 @@
 import { useState, useEffect } from 'react';
 import { 
   getMusteriIlce, 
-  getAylikRandevu, 
-  getHizmetPerformans, 
-  getRakipAnalizi, 
-  getKampanyaAnalizi, 
-  getKarZarar 
+  getAylikRandevu
 } from '../services/dssService';
-import { Users, Sparkles, Building2, Gift } from 'lucide-react';
-import CustomerAnalytics from '../components/charts/CustomerAnalytics';
-import ServiceAnalytics from '../components/charts/ServiceAnalytics';
-import CompetitorAnalytics from '../components/charts/CompetitorAnalytics';
-import CampaignAnalytics from '../components/charts/CampaignAnalytics';
-import MusteriIlceChart from '../components/charts/MusteriIlceChart';
-import RandevuTrendChart from '../components/charts/RandevuTrendChart';
-
-const tabs = [
-  { id: 'musteri', label: 'Müşteri Analizi', icon: Users },
-  { id: 'hizmet', label: 'Hizmet Performansı', icon: Sparkles },
-  { id: 'rakip', label: 'Rakip Analizi', icon: Building2 },
-  { id: 'kampanya', label: 'Kampanya Analizi', icon: Gift },
-];
+import AnalyticsSummary from '../components/AnalyticsSummary';
+import MusteriAnaliziTab from '../components/analizler/MusteriAnaliziTab';
+import HizmetPerformansiTab from '../components/analizler/HizmetPerformansiTab';
+import KampanyaStratejiTab from '../components/analizler/KampanyaStratejiTab';
+import RakipRiskTab from '../components/analizler/RakipRiskTab';
+import IlceUygunlukSkoruBölüm from '../components/analizler/IlceUygunlukSkoruBölüm';
+import { Users, Sparkles, Target, Building2 } from 'lucide-react';
 
 export default function Analizler() {
   const [activeTab, setActiveTab] = useState('musteri');
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState({
-    musteriIlce: [],
-    aylikRandevu: [],
-    hizmetPerformans: [],
-    rakipAnalizi: [],
-    kampanyaAnalizi: [],
-    karZarar: [],
-  });
+  const [musteriIlceData, setMusteriIlceData] = useState([]);
+  const [aylikRandevuData, setAylikRandevuData] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetchAllData();
+    fetchSummaryData();
   }, []);
 
-  const fetchAllData = async () => {
+  const fetchSummaryData = async () => {
     setLoading(true);
     try {
-      const [musteriIlceRes, aylikRandevuRes, hizmetPerformansRes, rakipAnaliziRes, kampanyaAnaliziRes, karZararRes] = await Promise.all([
-        getMusteriIlce(),
-        getAylikRandevu(),
-        getHizmetPerformans(),
-        getRakipAnalizi(),
-        getKampanyaAnalizi(),
-        getKarZarar(),
+      const [musteriIlceRes, aylikRandevuRes] = await Promise.all([
+        getMusteriIlce().catch(() => []),
+        getAylikRandevu().catch(() => [])
       ]);
 
-      setData({
-        musteriIlce: musteriIlceRes.data || [],
-        aylikRandevu: aylikRandevuRes.data || [],
-        hizmetPerformans: hizmetPerformansRes.data || [],
-        rakipAnalizi: rakipAnaliziRes.data || [],
-        kampanyaAnalizi: kampanyaAnaliziRes.data || [],
-        karZarar: karZararRes.data || [],
-      });
+      setMusteriIlceData(Array.isArray(musteriIlceRes) ? musteriIlceRes : []);
+      setAylikRandevuData(Array.isArray(aylikRandevuRes) ? aylikRandevuRes : []);
     } catch (error) {
-      console.error('Error fetching analytics data:', error);
+      console.error('Veri yükleme hatası:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-      </div>
-    );
-  }
+  const tabs = [
+    { id: 'musteri', label: 'Müşteri Analizi', icon: Users },
+    { id: 'hizmet', label: 'Hizmet Performansı', icon: Sparkles },
+    { id: 'kampanya', label: 'Kampanya & Strateji', icon: Target },
+    { id: 'rakip', label: 'Rakip & Risk Analizi', icon: Building2 },
+  ];
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'musteri':
+        return <MusteriAnaliziTab />;
+      case 'hizmet':
+        return <HizmetPerformansiTab />;
+      case 'kampanya':
+        return <KampanyaStratejiTab />;
+      case 'rakip':
+        return <RakipRiskTab />;
+      default:
+        return <MusteriAnaliziTab />;
+    }
+  };
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold mb-2 bg-gradient-to-r from-purple-600 to-purple-800 bg-clip-text text-transparent">
-          Analizler
-        </h1>
-        <p className="text-purple-600/70">Kapsamlı iş analitiği ve karar destek raporları</p>
+    <div className="space-y-6">
+      {/* Başlık */}
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">Karar Destek Analizleri</h1>
+        <p className="text-gray-600">Detaylı analiz ve raporlar</p>
+        <p className="text-purple-600 mt-2 text-sm">
+          Bu sayfa, yeni şube açma kararını desteklemek için mevcut verileri bir araya getirir. 
+          <span className="font-semibold ml-1">Konak</span> ilçesi mevcut şube olarak referans alınır.
+        </p>
       </div>
 
-      {/* Quick Overview Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <MusteriIlceChart data={data.musteriIlce} />
-        <RandevuTrendChart data={data.aylikRandevu} />
-      </div>
+      {/* Analytics Summary - KPI Kartları */}
+      <AnalyticsSummary
+        musteriIlceData={musteriIlceData}
+        aylikRandevuData={aylikRandevuData}
+      />
 
-      {/* Tabs */}
-      <div className="bg-white rounded-2xl shadow-lg border border-purple-100 mb-6 overflow-hidden">
-        <div className="flex flex-wrap border-b border-purple-100">
+      {/* Sekmeli Yapı */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-100">
+        {/* Sekme Başlıkları */}
+        <div className="flex flex-wrap border-b border-gray-200">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -98,31 +89,40 @@ export default function Analizler() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-3 px-6 py-4 font-semibold transition-all duration-200 relative ${
+                className={`flex items-center gap-2 px-4 md:px-6 py-4 font-medium transition-all duration-200 relative ${
                   isActive
-                    ? 'text-purple-700 bg-purple-50'
-                    : 'text-purple-600 hover:bg-purple-50/50'
+                    ? 'text-purple-600'
+                    : 'text-gray-600 hover:text-purple-500 hover:bg-purple-50/50'
                 }`}
               >
-                <Icon className="w-5 h-5" />
-                <span>{tab.label}</span>
+                <Icon className={`w-5 h-5 ${isActive ? 'text-purple-600' : 'text-gray-400'}`} />
+                <span className="hidden sm:inline">{tab.label}</span>
+                {/* Aktif Sekme Alt Çizgisi */}
                 {isActive && (
-                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-600 to-purple-800"></div>
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-600"></div>
                 )}
               </button>
             );
           })}
         </div>
+
+        {/* Sekme İçeriği */}
+        <div className="p-4 md:p-6">
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Yükleniyor...</p>
+            </div>
+          ) : (
+            renderTabContent()
+          )}
+        </div>
       </div>
 
-      {/* Tab Content */}
-      <div className="space-y-6">
-        {activeTab === 'musteri' && <CustomerAnalytics data={data} />}
-        {activeTab === 'hizmet' && <ServiceAnalytics data={data} />}
-        {activeTab === 'rakip' && <CompetitorAnalytics data={data} />}
-        {activeTab === 'kampanya' && <CampaignAnalytics data={data} />}
+      {/* İlçe Uygunluk Skoru Bölümü */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 md:p-6">
+        <IlceUygunlukSkoruBölüm />
       </div>
     </div>
   );
 }
-

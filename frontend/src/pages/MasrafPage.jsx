@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { masrafService } from '../services/masrafService';
 import { formatDate, formatCurrency } from '../utils/format';
 import { Plus, Edit, Trash2, X } from 'lucide-react';
-import api from '../services/api';
+import apiClient from '../services/apiClient';
 
 export default function MasrafPage() {
   const [data, setData] = useState([]);
@@ -21,7 +21,7 @@ export default function MasrafPage() {
 
   const fetchSubeler = async () => {
     try {
-      const response = await api.get('/sube');
+      const response = await apiClient.get('/sube');
       setSubeler(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error:', error);

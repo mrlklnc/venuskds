@@ -1,87 +1,165 @@
-import express from 'express';
-import { prisma } from '../server.js';
+import express from "express";
+import pool from "../lib/db.js";
 
 const router = express.Router();
 
-// GET all musteri with optional filters
-router.get('/', async (req, res) => {
+/**
+ * GET /api/musteri
+ * Tüm müşterileri listeler
+ * Opsiyonel filtre: ilce_id
+ * Sayfalama: page, limit
+ */
+router.get("/", async (req, res) => {
   try {
-    const { ilce_id, segment, page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { ilce_id, page = 1, limit = 50 } = req.query;
 
-    const where = {};
-    if (ilce_id) where.ilce_id = parseInt(ilce_id);
-    if (segment) where.segment = segment;
+    const currentPage = parseInt(page);
+    const pageLimit = parseInt(limit);
+    const offset = (currentPage - 1) * pageLimit;
 
-    const [data, total] = await Promise.all([
-      prisma.musteri.findMany({
-        where,
-        skip,
-        take: parseInt(limit),
-        orderBy: { musteri_id: 'desc' }
-      }),
-      prisma.musteri.count({ where })
-    ]);
+    let baseQuery = "FROM musteri WHERE 1=1";
+    const params = [];
+
+    if (ilce_id) {
+      baseQuery += " AND ilce_id = ?";
+      params.push(parseInt(ilce_id));
+    }
+
+    // Toplam kayıt sayısı
+    const countSql = `SELECT COUNT(*) as total ${baseQuery}`;
+    const [countRows] = await pool.query(countSql, params);
+    const total = countRows[0].total;
+
+    // Veri sorgusu
+    const dataSql = `
+      SELECT *
+      ${baseQuery}
+      ORDER BY musteri_id DESC
+      LIMIT ? OFFSET ?
+    `;
+    const dataParams = [...params, pageLimit, offset];
+    const [rows] = await pool.query(dataSql, dataParams);
 
     res.json({
-      data,
+      data: rows,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: currentPage,
+        limit: pageLimit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
+        pages: Math.ceil(total / pageLimit),
+      },
     });
   } catch (error) {
+    console.error("Müşteri listesi hatası:", error);
+    res.status(500).json({
+      error: "Müşteri listesi alınırken hata oluştu",
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/musteri/:id
+ * Tek müşteri getir
+ */
+router.get("/:id", async (req, res) => {
+  try {
+    const musteriId = parseInt(req.params.id);
+
+    const [rows] = await pool.query(
+      "SELECT * FROM musteri WHERE musteri_id = ?",
+      [musteriId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Müşteri bulunamadı" });
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    console.error("Müşteri getirme hatası:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// GET single musteri
-router.get('/:id', async (req, res) => {
+/**
+ * POST /api/musteri
+ * Yeni müşteri ekle
+ */
+router.post("/", async (req, res) => {
   try {
-    const musteri = await prisma.musteri.findUnique({
-      where: { musteri_id: parseInt(req.params.id) },
-      include: { randevu: { include: { hizmet: true } } }
-    });
-    if (!musteri) return res.status(404).json({ error: 'Müşteri not found' });
-    res.json(musteri);
+    const { ad, soyad, telefon, ilce_id, dogum_tarihi, yas } = req.body;
+
+    const [result] = await pool.query(
+      `
+      INSERT INTO musteri (ad, soyad, telefon, ilce_id, dogum_tarihi, yas)
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [ad, soyad, telefon, ilce_id, dogum_tarihi, yas]
+    );
+
+    const [rows] = await pool.query(
+      "SELECT * FROM musteri WHERE musteri_id = ?",
+      [result.insertId]
+    );
+
+    res.status(201).json(rows[0]);
   } catch (error) {
+    console.error("Müşteri ekleme hatası:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// POST create musteri
-router.post('/', async (req, res) => {
+/**
+ * PUT /api/musteri/:id
+ * Müşteri güncelle
+ */
+router.put("/:id", async (req, res) => {
   try {
-    const musteri = await prisma.musteri.create({ data: req.body });
-    res.status(201).json(musteri);
+    const musteriId = parseInt(req.params.id);
+    const { ad, soyad, telefon, ilce_id, dogum_tarihi, yas } = req.body;
+
+    await pool.query(
+      `
+      UPDATE musteri
+      SET ad = ?, soyad = ?, telefon = ?, ilce_id = ?, dogum_tarihi = ?, yas = ?
+      WHERE musteri_id = ?
+      `,
+      [ad, soyad, telefon, ilce_id, dogum_tarihi, yas, musteriId]
+    );
+
+    const [rows] = await pool.query(
+      "SELECT * FROM musteri WHERE musteri_id = ?",
+      [musteriId]
+    );
+
+    res.json(rows[0]);
   } catch (error) {
+    console.error("Müşteri güncelleme hatası:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// PUT update musteri
-router.put('/:id', async (req, res) => {
+/**
+ * DELETE /api/musteri/:id
+ * Müşteri sil
+ */
+router.delete("/:id", async (req, res) => {
   try {
-    const musteri = await prisma.musteri.update({
-      where: { musteri_id: parseInt(req.params.id) },
-      data: req.body
-    });
-    res.json(musteri);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    const musteriId = parseInt(req.params.id);
 
-// DELETE musteri
-router.delete('/:id', async (req, res) => {
-  try {
-    await prisma.musteri.delete({
-      where: { musteri_id: parseInt(req.params.id) }
-    });
-    res.json({ message: 'Müşteri deleted successfully' });
+    const [result] = await pool.query(
+      "DELETE FROM musteri WHERE musteri_id = ?",
+      [musteriId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "Müşteri bulunamadı" });
+    }
+
+    res.json({ message: "Müşteri başarıyla silindi" });
   } catch (error) {
+    console.error("Müşteri silme hatası:", error);
     res.status(500).json({ error: error.message });
   }
 });

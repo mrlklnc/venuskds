@@ -1,10 +1,10 @@
-import api from './api';
+import apiClient from './apiClient';
 
 export const memnuniyetService = {
-  getAll: (params = {}) => api.get('/memnuniyet', { params }),
-  getById: (id) => api.get(`/memnuniyet/${id}`),
-  create: (data) => api.post('/memnuniyet', data),
-  update: (id, data) => api.put(`/memnuniyet/${id}`, data),
-  delete: (id) => api.delete(`/memnuniyet/${id}`),
+  getAll: (params = {}) => apiClient.get('/memnuniyet', { params }),
+  getById: (id) => apiClient.get(`/memnuniyet/${id}`),
+  create: (data) => apiClient.post('/memnuniyet', data),
+  update: (id, data) => apiClient.put(`/memnuniyet/${id}`, data),
+  delete: (id) => apiClient.delete(`/memnuniyet/${id}`),
 };
 

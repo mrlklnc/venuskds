@@ -1,10 +1,10 @@
-import api from './api';
+import apiClient from './apiClient';
 
 export const musteriService = {
-  getAll: (params = {}) => api.get('/musteri', { params }),
-  getById: (id) => api.get(`/musteri/${id}`),
-  create: (data) => api.post('/musteri', data),
-  update: (id, data) => api.put(`/musteri/${id}`, data),
-  delete: (id) => api.delete(`/musteri/${id}`),
+  getAll: (params = {}) => apiClient.get('/musteri', { params }),
+  getById: (id) => apiClient.get(`/musteri/${id}`),
+  create: (data) => apiClient.post('/musteri', data),
+  update: (id, data) => apiClient.put(`/musteri/${id}`, data),
+  delete: (id) => apiClient.delete(`/musteri/${id}`),
 };
 

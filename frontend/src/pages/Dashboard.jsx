@@ -1,226 +1,218 @@
-import { useEffect, useState } from 'react';
-import KPICard from '../components/KPICard';
-import { DollarSign, Users, Calendar, TrendingUp } from 'lucide-react';
-import { formatCurrency } from '../utils/format';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement,
-} from 'chart.js';
-import { Line, Bar, Doughnut } from 'react-chartjs-2';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ArcElement
-);
+import { useEffect, useState, useMemo } from "react";
+import { getDashboardSummary } from "../services/dashboardService";
+import { getRandevuAylik, getMusteriIlce } from "../services/dssService";
+import KPICard from "../components/KPICard";
+import { DollarSign, Users, Calendar, TrendingUp, TrendingDown, Minus, Lightbulb } from "lucide-react";
+import { formatCurrency } from "../utils/format";
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, BarChart, Bar } from "recharts";
 
 export default function Dashboard() {
-  const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [errMsg, setErrMsg] = useState("");
+
   const [stats, setStats] = useState({
     totalCustomers: 0,
     totalAppointments: 0,
     totalRevenue: 0,
   });
 
+  const [aylikRandevu, setAylikRandevu] = useState([]);
+  const [musteriIlce, setMusteriIlce] = useState([]);
+
   useEffect(() => {
-    fetchDashboardData();
+    const loadDashboard = async () => {
+      try {
+        setLoading(true);
+        setErrMsg("");
+
+        console.log("🚀 dashboard summary fetch başladı...");
+        const summary = await getDashboardSummary();
+        console.log("✅ SUMMARY API:", summary);
+
+        setStats({
+          totalCustomers: Number(summary.totalMusteri ?? 0),
+          totalAppointments: Number(summary.totalRandevu ?? 0),
+          totalRevenue: Number(summary.toplamGelir ?? 0),
+        });
+
+        // Aylık randevu verisini çek
+        try {
+          const aylikData = await getRandevuAylik();
+          console.log("✅ Aylık randevu verisi:", aylikData);
+          // Backend'den gelen veri formatı: { ay, toplam_randevu }
+          const formattedData = Array.isArray(aylikData) 
+            ? aylikData.map(item => ({
+                ay: item.ay || "",
+                randevuSayisi: Number(item.toplam_randevu) || 0
+              }))
+            : [];
+          setAylikRandevu(formattedData);
+        } catch (e) {
+          console.error("❌ Aylık randevu veri hatası:", e);
+          setAylikRandevu([]);
+        }
+
+        // Müşteri ilçe verisini çek
+        try {
+          const ilceData = await getMusteriIlce();
+          console.log("✅ Müşteri ilçe verisi:", ilceData);
+          // Backend'den gelen veri formatı: { ilce, musteri_sayisi } - zaten DESC sıralı
+          // En yüksek 5 ilçeyi al
+          const top5Ilce = Array.isArray(ilceData) 
+            ? ilceData.slice(0, 5).map(item => ({
+                ilce: item.ilce || "Bilinmeyen",
+                musteriSayisi: Number(item.musteri_sayisi) || 0
+              }))
+            : [];
+          setMusteriIlce(top5Ilce);
+        } catch (e) {
+          console.error("❌ Müşteri ilçe veri hatası:", e);
+          setMusteriIlce([]);
+        }
+      } catch (e) {
+        console.error("❌ Dashboard veri hatası:", e);
+        setErrMsg(
+          e?.response
+            ? `API hata: ${e.response.status} ${JSON.stringify(e.response.data)}`
+            : `API hata: ${e.message}`
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDashboard();
   }, []);
 
-  const fetchDashboardData = async () => {
-    try {
-      // Mock data - API verisi gelmese bile ekran dolu olsun
-      const mockOverview = {
-        monthlyComparison: [
-          { monthName: 'Ocak', appointments: 45, revenue: 12500 },
-          { monthName: 'Şubat', appointments: 52, revenue: 14200 },
-          { monthName: 'Mart', appointments: 48, revenue: 13800 },
-          { monthName: 'Nisan', appointments: 61, revenue: 16800 },
-          { monthName: 'Mayıs', appointments: 55, revenue: 15200 },
-          { monthName: 'Haziran', appointments: 58, revenue: 16200 },
-        ],
-        serviceRanking: [
-          { hizmet_id: 1, hizmet_ad: 'Lazer Epilasyon', appointments: 120, revenue: 36000 },
-          { hizmet_id: 2, hizmet_ad: 'Hydrafacial', appointments: 85, revenue: 25500 },
-          { hizmet_id: 3, hizmet_ad: 'Cilt Bakımı', appointments: 95, revenue: 19000 },
-          { hizmet_id: 4, hizmet_ad: 'Saç Kesimi', appointments: 150, revenue: 15000 },
-          { hizmet_id: 5, hizmet_ad: 'Makyaj', appointments: 60, revenue: 12000 },
-        ],
-        districtRanking: [
-          { ilce_id: 1, ilce_ad: 'Konak', appointments: 180, revenue: 45000 },
-          { ilce_id: 2, ilce_ad: 'Karşıyaka', appointments: 150, revenue: 38000 },
-          { ilce_id: 3, ilce_ad: 'Bornova', appointments: 120, revenue: 30000 },
-        ],
-        customerSegmentation: {
-          'A Segmenti': 45,
-          'B Segmenti': 120,
-          'C Segmenti': 85,
-        },
-      };
+  // Hızlı Karar Özetleri için analizler
+  const kararOzetleri = useMemo(() => {
+    const ozetler = [];
 
-      const mockStats = {
-        totalCustomers: 250,
-        totalAppointments: 510,
-        totalRevenue: 108500,
-      };
-
-      setOverview(mockOverview);
-      setStats(mockStats);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      // Hata durumunda da mock data göster
-      const mockOverview = {
-        monthlyComparison: [
-          { monthName: 'Ocak', appointments: 45, revenue: 12500 },
-          { monthName: 'Şubat', appointments: 52, revenue: 14200 },
-        ],
-        serviceRanking: [
-          { hizmet_id: 1, hizmet_ad: 'Lazer Epilasyon', appointments: 120, revenue: 36000 },
-        ],
-        districtRanking: [
-          { ilce_id: 1, ilce_ad: 'Konak', appointments: 180, revenue: 45000 },
-        ],
-        customerSegmentation: { 'A Segmenti': 45, 'B Segmenti': 120 },
-      };
-      setOverview(mockOverview);
-      setStats({ totalCustomers: 250, totalAppointments: 510, totalRevenue: 108500 });
-    } finally {
-      setLoading(false);
+    // 1. En yoğun ilçe bilgisi
+    if (musteriIlce && musteriIlce.length > 0 && musteriIlce[0]) {
+      const enYogunIlce = musteriIlce[0];
+      ozetler.push({
+        type: "ilce",
+        title: "En Yoğun İlçe",
+        content: `${enYogunIlce.ilce} ilçesi ${enYogunIlce.musteriSayisi.toLocaleString("tr-TR")} müşteri ile en yoğun bölge.`,
+        icon: Users,
+        color: "purple"
+      });
     }
-  };
 
-  const monthlyChartData = {
-    labels: overview?.monthlyComparison?.map(m => m.monthName) || [],
-    datasets: [
-      {
-        label: 'Randevu Sayısı',
-        data: overview?.monthlyComparison?.map(m => m.appointments) || [],
-        borderColor: '#7c3aed',
-        backgroundColor: 'rgba(124, 58, 237, 0.1)',
-        tension: 0.4,
-      },
-      {
-        label: 'Gelir (TL)',
-        data: overview?.monthlyComparison?.map(m => m.revenue) || [],
-        borderColor: '#a78bfa',
-        backgroundColor: 'rgba(167, 139, 250, 0.1)',
-        yAxisID: 'y1',
-        tension: 0.4,
-      },
-    ],
-  };
+    // 2. Randevu trendi artış/azalış yorumu
+    // Backend'den gelen veri DESC sıralı (en yeni ilk sırada)
+    if (aylikRandevu && aylikRandevu.length >= 2) {
+      const enEskiAy = aylikRandevu[aylikRandevu.length - 1]; // En eski ay (zaman içinde başlangıç)
+      const enYeniAy = aylikRandevu[0]; // En yeni ay (zaman içinde son)
+      
+      if (enEskiAy && enYeniAy) {
+        const eskiAySayi = enEskiAy.randevuSayisi || 0;
+        const yeniAySayi = enYeniAy.randevuSayisi || 0;
+        
+        let trendYorumu = "";
+        let trendIcon = Minus;
+        let trendColor = "gray";
+        
+        if (yeniAySayi > eskiAySayi) {
+          const artis = yeniAySayi - eskiAySayi;
+          const yuzde = eskiAySayi > 0 ? ((artis / eskiAySayi) * 100).toFixed(1) : 100;
+          trendYorumu = `Randevu sayısı son dönemde %${yuzde} artış gösterdi (${eskiAySayi} → ${yeniAySayi}).`;
+          trendIcon = TrendingUp;
+          trendColor = "green";
+        } else if (yeniAySayi < eskiAySayi) {
+          const azalis = eskiAySayi - yeniAySayi;
+          const yuzde = eskiAySayi > 0 ? ((azalis / eskiAySayi) * 100).toFixed(1) : 0;
+          trendYorumu = `Randevu sayısı son dönemde %${yuzde} azalış gösterdi (${eskiAySayi} → ${yeniAySayi}).`;
+          trendIcon = TrendingDown;
+          trendColor = "red";
+        } else {
+          trendYorumu = `Randevu sayısı sabit kaldı (${eskiAySayi} randevu).`;
+        }
+        
+        ozetler.push({
+          type: "trend",
+          title: "Randevu Trendi",
+          content: trendYorumu,
+          icon: trendIcon,
+          color: trendColor
+        });
+      }
+    }
 
-  const revenueChartData = {
-    labels: overview?.monthlyComparison?.map(m => m.monthName) || [],
-    datasets: [
-      {
-        label: 'Aylık Gelir',
-        data: overview?.monthlyComparison?.map(m => m.revenue) || [],
-        backgroundColor: 'rgba(124, 58, 237, 0.8)',
-      },
-    ],
-  };
+    // 3. Ortalama randevu değerine dair yorum
+    if (stats.totalAppointments > 0) {
+      const ortalamaRandevuDegeri = stats.totalRevenue / stats.totalAppointments;
+      let degerYorumu = `Ortalama randevu değeri ${formatCurrency(ortalamaRandevuDegeri)}.`;
+      
+      if (ortalamaRandevuDegeri > 500) {
+        degerYorumu += " Yüksek değerli hizmetler tercih ediliyor.";
+      } else if (ortalamaRandevuDegeri > 200) {
+        degerYorumu += " Orta seviye hizmetler popüler.";
+      } else {
+        degerYorumu += " Ekonomik hizmetler daha çok tercih ediliyor.";
+      }
+      
+      ozetler.push({
+        type: "ortalama",
+        title: "Ortalama Randevu Değeri",
+        content: degerYorumu,
+        icon: DollarSign,
+        color: "blue"
+      });
+    }
 
-  const serviceChartData = {
-    labels: overview?.serviceRanking?.slice(0, 5).map(s => s.hizmet_ad) || [],
-    datasets: [
-      {
-        label: 'Gelir (TL)',
-        data: overview?.serviceRanking?.slice(0, 5).map(s => s.revenue) || [],
-        backgroundColor: [
-          'rgba(124, 58, 237, 0.8)',
-          'rgba(167, 139, 250, 0.8)',
-          'rgba(196, 181, 253, 0.8)',
-          'rgba(221, 214, 254, 0.8)',
-          'rgba(237, 233, 254, 0.8)',
-        ],
-      },
-    ],
-  };
+    return ozetler;
+  }, [musteriIlce, aylikRandevu, stats]);
 
-  const segmentChartData = {
-    labels: overview?.customerSegmentation ? Object.keys(overview.customerSegmentation) : [],
-    datasets: [
-      {
-        data: overview?.customerSegmentation ? Object.values(overview.customerSegmentation) : [],
-        backgroundColor: [
-          'rgba(124, 58, 237, 0.8)',
-          'rgba(167, 139, 250, 0.8)',
-          'rgba(196, 181, 253, 0.8)',
-          'rgba(221, 214, 254, 0.8)',
-        ],
-      },
-    ],
-  };
+  if (loading) {
+    return <div className="p-10 text-xl">Yükleniyor...</div>;
+  }
 
-  const chartOptions = {
-    responsive: true,
-    plugins: {
-      legend: {
-        position: 'top',
-      },
-    },
-  };
-
-  const lineChartOptions = {
-    ...chartOptions,
-    scales: {
-      y: {
-        type: 'linear',
-        display: true,
-        position: 'left',
-      },
-      y1: {
-        type: 'linear',
-        display: true,
-        position: 'right',
-        grid: {
-          drawOnChartArea: false,
-        },
-      },
-    },
-  };
+  if (errMsg) {
+    return (
+      <div className="p-10">
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700">
+          <b>Dashboard API çağrısı başarısız</b>
+          <div className="mt-2 text-sm">{errMsg}</div>
+          <div className="mt-3 text-sm">
+            Tarayıcıda şu açılıyor mu?{" "}
+            <code>http://localhost:4000/api/dashboard/summary
+            </code>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <h1 className="text-3xl font-semibold mb-8 bg-gradient-to-r from-purple-600 to-purple-800 bg-clip-text text-transparent">
+      <h1 className="text-3xl font-semibold mb-8 text-purple-700">
         Dashboard - 2025
       </h1>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <KPICard
           title="Toplam Müşteri"
-          value={stats.totalCustomers.toLocaleString('tr-TR')}
+          value={stats.totalCustomers.toLocaleString("tr-TR")}
           icon={Users}
           color="purple"
         />
+
         <KPICard
           title="Toplam Randevu"
-          value={stats.totalAppointments.toLocaleString('tr-TR')}
+          value={stats.totalAppointments.toLocaleString("tr-TR")}
           icon={Calendar}
           color="purple"
         />
+
         <KPICard
           title="Toplam Gelir"
           value={formatCurrency(stats.totalRevenue)}
           icon={DollarSign}
           color="purple"
         />
+
         <KPICard
           title="Ortalama Randevu Değeri"
           value={formatCurrency(
@@ -233,111 +225,140 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
-          <h2 className="text-xl font-semibold mb-4 text-purple-700">Aylık Randevu ve Gelir Trendi</h2>
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-            </div>
-          ) : (
-            <Line data={monthlyChartData} options={lineChartOptions} />
-          )}
-        </div>
-        <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
-          <h2 className="text-xl font-semibold mb-4 text-purple-700">Aylık Gelir Dağılımı</h2>
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-            </div>
-          ) : (
-            <Bar data={revenueChartData} options={chartOptions} />
-          )}
-        </div>
+      {/* Aylık Randevu Trendi */}
+      <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-4 text-purple-700">
+          Aylık Randevu Trendi
+        </h2>
+        {aylikRandevu && aylikRandevu.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={aylikRandevu}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
+              <XAxis 
+                dataKey="ay" 
+                tick={{ fill: '#6b5b95', fontSize: 12 }}
+              />
+              <YAxis 
+                tick={{ fill: '#6b5b95' }}
+                label={{ value: 'Randevu Sayısı', angle: -90, position: 'insideLeft', fill: '#6b5b95' }}
+              />
+              <Tooltip 
+                formatter={(value) => [value, 'Randevu Sayısı']}
+                labelFormatter={(label) => `Ay: ${label}`}
+                contentStyle={{ 
+                  backgroundColor: '#faf5ff', 
+                  border: '1px solid #c4b5fd',
+                  borderRadius: '8px'
+                }}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="randevuSayisi" 
+                stroke="#7c3aed" 
+                strokeWidth={3}
+                dot={{ fill: '#a78bfa', r: 5 }}
+                activeDot={{ r: 7 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-64 text-purple-600">
+            <p>Henüz yeterli veri yok</p>
+          </div>
+        )}
       </div>
 
-      {/* Charts Row 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
-          <h2 className="text-xl font-semibold mb-4 text-purple-700">En Çok Gelir Getiren Hizmetler (Top 5)</h2>
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-            </div>
-          ) : (
-            <Bar data={serviceChartData} options={chartOptions} />
-          )}
-        </div>
-        <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
-          <h2 className="text-xl font-semibold mb-4 text-purple-700">Müşteri Segmentasyonu</h2>
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
-            </div>
-          ) : (
-            <Doughnut data={segmentChartData} options={chartOptions} />
-          )}
-        </div>
+      {/* En Yoğun İlçeler */}
+      <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-4 text-purple-700">
+          En Yoğun İlçeler
+        </h2>
+        {musteriIlce && musteriIlce.length > 0 ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={musteriIlce}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
+              <XAxis 
+                dataKey="ilce" 
+                tick={{ fill: '#6b5b95', fontSize: 12 }}
+                angle={-45}
+                textAnchor="end"
+                height={100}
+              />
+              <YAxis 
+                tick={{ fill: '#6b5b95' }}
+                label={{ value: 'Müşteri Sayısı', angle: -90, position: 'insideLeft', fill: '#6b5b95' }}
+              />
+              <Tooltip 
+                formatter={(value) => [value, 'Müşteri Sayısı']}
+                labelFormatter={(label) => `İlçe: ${label}`}
+                contentStyle={{ 
+                  backgroundColor: '#faf5ff', 
+                  border: '1px solid #c4b5fd',
+                  borderRadius: '8px'
+                }}
+              />
+              <Bar 
+                dataKey="musteriSayisi" 
+                fill="#7c3aed"
+                radius={[6, 6, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-64 text-purple-600">
+            <p>Henüz yeterli veri yok</p>
+          </div>
+        )}
       </div>
 
-      {/* Tables */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
-          <h2 className="text-xl font-semibold mb-4 text-purple-700">Hizmet Sıralaması</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-purple-100">
-                  <th className="text-left py-2 text-purple-700 font-semibold">Hizmet</th>
-                  <th className="text-right py-2 text-purple-700 font-semibold">Randevu</th>
-                  <th className="text-right py-2 text-purple-700 font-semibold">Gelir</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview?.serviceRanking?.slice(0, 10).map((service) => (
-                  <tr key={service.hizmet_id} className="border-b border-purple-50 hover:bg-purple-50/50 transition-colors">
-                    <td className="py-2 text-purple-600">{service.hizmet_ad}</td>
-                    <td className="text-right py-2 text-purple-600">{service.appointments}</td>
-                    <td className="text-right py-2 font-semibold text-purple-700">{formatCurrency(service.revenue)}</td>
-                  </tr>
-                )) || (
-                  <tr>
-                    <td colSpan="3" className="py-4 text-center text-purple-500">Veri yükleniyor...</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+      {/* Hızlı Karar Özetleri */}
+      <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl shadow-lg border-2 border-purple-200 p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="bg-purple-600 p-2 rounded-lg">
+            <Lightbulb className="w-6 h-6 text-white" />
           </div>
+          <h2 className="text-2xl font-semibold text-purple-800">
+            Hızlı Karar Özetleri
+          </h2>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-lg border border-purple-100 p-6">
-          <h2 className="text-xl font-semibold mb-4 text-purple-700">İlçe Sıralaması</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-purple-100">
-                  <th className="text-left py-2 text-purple-700 font-semibold">İlçe</th>
-                  <th className="text-right py-2 text-purple-700 font-semibold">Randevu</th>
-                  <th className="text-right py-2 text-purple-700 font-semibold">Gelir</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview?.districtRanking?.slice(0, 10).map((district) => (
-                  <tr key={district.ilce_id} className="border-b border-purple-50 hover:bg-purple-50/50 transition-colors">
-                    <td className="py-2 text-purple-600">{district.ilce_ad}</td>
-                    <td className="text-right py-2 text-purple-600">{district.appointments}</td>
-                    <td className="text-right py-2 font-semibold text-purple-700">{formatCurrency(district.revenue)}</td>
-                  </tr>
-                )) || (
-                  <tr>
-                    <td colSpan="3" className="py-4 text-center text-purple-500">Veri yükleniyor...</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+        {kararOzetleri && kararOzetleri.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {kararOzetleri.map((ozet, index) => {
+              const Icon = ozet.icon;
+              const colorClasses = {
+                purple: "bg-purple-500",
+                green: "bg-green-500",
+                red: "bg-red-500",
+                blue: "bg-blue-500",
+                gray: "bg-gray-500"
+              };
+              
+              return (
+                <div
+                  key={index}
+                  className="bg-white rounded-xl shadow-md border border-purple-100 p-5 hover:shadow-lg transition-shadow"
+                >
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className={`${colorClasses[ozet.color]} p-2 rounded-lg`}>
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-purple-700">
+                      {ozet.title}
+                    </h3>
+                  </div>
+                  <p className="text-gray-700 text-sm leading-relaxed">
+                    {ozet.content}
+                  </p>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center justify-center py-12 text-purple-600">
+            <p className="text-lg">Henüz karar üretilemedi</p>
+          </div>
+        )}
       </div>
     </div>
   );

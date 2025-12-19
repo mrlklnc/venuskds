@@ -17,6 +17,7 @@ import {
   getKonakKarsilastirma 
 } from '../../services/dssService';
 import { MapPin, TrendingUp, Target, Lightbulb } from 'lucide-react';
+import { GRID_STYLE, AXIS_STYLE, TOOLTIP_STYLE } from '../../styles/chartTheme';
 
 // Mor tonlu renk paleti (birbirinden ayırt edilebilir)
 const PIE_COLORS = [
@@ -116,22 +117,25 @@ export default function HizmetPerformansiTab() {
     );
   };
 
-  // Pie Tooltip
+  // Pie Tooltip - Premium Style
   const PieTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       const total = getTotalGelir();
       const percent = ((data.toplam_gelir / total) * 100).toFixed(1);
       return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-purple-200">
-          <p className="font-semibold text-purple-700">{data.hizmet_ad}</p>
-          <p className="text-gray-700 text-sm">
+        <div style={{
+          ...TOOLTIP_STYLE.premium.contentStyle,
+          minWidth: '160px'
+        }}>
+          <p style={TOOLTIP_STYLE.premium.labelStyle}>💎 {data.hizmet_ad}</p>
+          <p style={TOOLTIP_STYLE.premium.itemStyle}>
             Gelir: <span className="font-semibold">{formatCurrency(data.toplam_gelir)}</span>
           </p>
-          <p className="text-gray-600 text-sm">
+          <p style={TOOLTIP_STYLE.premium.itemStyle}>
             Pay: <span className="font-semibold">%{percent}</span>
           </p>
-          <p className="text-gray-500 text-xs">
+          <p className="text-gray-500 text-xs mt-1">
             {data.toplam_randevu} randevu
           </p>
         </div>
@@ -140,14 +144,16 @@ export default function HizmetPerformansiTab() {
     return null;
   };
 
-  // Bar Tooltip
+  // Bar Tooltip - Premium Style
   const BarTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-purple-200">
-          <p className="font-semibold text-purple-700 mb-2">{label}</p>
+        <div style={TOOLTIP_STYLE.premium.contentStyle}>
+          <p style={TOOLTIP_STYLE.premium.labelStyle} className="flex items-center gap-1 mb-2">
+            📍 {label}
+          </p>
           {payload.map((entry, index) => (
-            <p key={index} className="text-sm flex items-center gap-1" style={{ color: entry.color }}>
+            <p key={index} style={TOOLTIP_STYLE.premium.itemStyle} className="flex items-center gap-1">
               {entry.name === 'Konak (Mevcut Şube)' && <MapPin className="w-3 h-3" />}
               {entry.name}: <span className="font-semibold">{formatCurrency(entry.value)}</span>
             </p>
@@ -184,7 +190,7 @@ export default function HizmetPerformansiTab() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Grafik 1: Hizmet Gelir Payı (Donut Chart) */}
-        <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
+        <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl shadow-sm border border-purple-100 p-4">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-gray-800">Hizmet Gelir Payı</h3>
             <p className="text-xs text-gray-500 mt-1">Toplam gelire göre hizmet dağılımı</p>
@@ -240,7 +246,7 @@ export default function HizmetPerformansiTab() {
         </div>
 
         {/* Grafik 2: Konak vs Diğer İlçeler */}
-        <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
+        <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl shadow-sm border border-purple-100 p-4">
           <div className="mb-4">
             <h3 className="text-lg font-semibold text-gray-800">Konak vs Diğer İlçeler</h3>
             <p className="text-xs text-gray-500 mt-1">Hizmet bazlı performans karşılaştırması</p>
@@ -252,18 +258,22 @@ export default function HizmetPerformansiTab() {
                 data={konakKarsilastirma.slice(0, 6)} 
                 margin={{ top: 10, right: 10, left: 0, bottom: 60 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
+                <CartesianGrid {...GRID_STYLE.premium} />
                 <XAxis 
                   dataKey="hizmet_ad" 
-                  tick={{ fill: '#6b5b95', fontSize: 10 }}
+                  tick={AXIS_STYLE.premium.tick}
                   angle={-45}
                   textAnchor="end"
                   height={70}
                   interval={0}
+                  axisLine={AXIS_STYLE.premium.axisLine}
+                  tickLine={AXIS_STYLE.premium.tickLine}
                 />
                 <YAxis 
-                  tick={{ fill: '#6b5b95', fontSize: 11 }}
+                  tick={AXIS_STYLE.premium.tick}
                   tickFormatter={formatShortCurrency}
+                  axisLine={AXIS_STYLE.premium.axisLine}
+                  tickLine={AXIS_STYLE.premium.tickLine}
                 />
                 <Tooltip content={<BarTooltip />} />
                 <Legend 
@@ -275,13 +285,13 @@ export default function HizmetPerformansiTab() {
                   dataKey="konak_gelir" 
                   name="Konak (Mevcut Şube)" 
                   fill={KONAK_COLOR}
-                  radius={[4, 4, 0, 0]}
+                  radius={[6, 6, 0, 0]}
                 />
                 <Bar 
                   dataKey="diger_ilceler_ortalama" 
                   name="Diğer İlçeler (Ort.)" 
                   fill={DIGER_COLOR}
-                  radius={[4, 4, 0, 0]}
+                  radius={[6, 6, 0, 0]}
                 />
               </BarChart>
             </ResponsiveContainer>

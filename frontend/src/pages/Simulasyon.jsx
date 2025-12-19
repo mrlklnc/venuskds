@@ -11,8 +11,7 @@ import {
   ReferenceLine
 } from 'recharts';
 import { Building2, MapPin, Users, TrendingUp, DollarSign, AlertTriangle, CheckCircle } from 'lucide-react';
-import { 
-  getIlceRakipAnalizi, 
+import {
   getIlceOzetById,
   getMusteriIlce,
   getIlceRandevu,
@@ -22,14 +21,13 @@ import {
 import { ilceService } from '../services/ilceService';
 
 export default function Simulasyon() {
-  const [rakipData, setRakipData] = useState([]);
   const [ilceList, setIlceList] = useState([]);
   const [selectedIlce, setSelectedIlce] = useState('');
   const [selectedIlceId, setSelectedIlceId] = useState(null);
   const [ilceOzet, setIlceOzet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [ozetLoading, setOzetLoading] = useState(false);
-  
+
   // Karar destek grafikleri için state'ler
   const [musteriData, setMusteriData] = useState([]);
   const [randevuData, setRandevuData] = useState([]);
@@ -43,30 +41,33 @@ export default function Simulasyon() {
         setLoading(true);
         setChartsLoading(true);
         const [
-          rakipRes, 
           ilceRes,
           musteriRes,
           randevuRes,
           rakipSayisiRes,
           talepRakipOraniRes
         ] = await Promise.all([
-          getIlceRakipAnalizi(),
           ilceService.getAll(),
           getMusteriIlce().catch(() => []),
           getIlceRandevu().catch(() => []),
           getIlceRakip().catch(() => []),
           getTalepRakipOrani().catch(() => [])
         ]);
-        setRakipData(Array.isArray(rakipRes) ? rakipRes : []);
         const ilceData = ilceRes?.data || ilceRes || [];
         setIlceList(Array.isArray(ilceData) ? ilceData : []);
         setMusteriData(Array.isArray(musteriRes) ? musteriRes.slice(0, 10) : []);
         setRandevuData(Array.isArray(randevuRes) ? randevuRes.slice(0, 10) : []);
-        setRakipSayisiData(Array.isArray(rakipSayisiRes) ? rakipSayisiRes.slice(0, 10) : []);
+        // normalize_rakip yoksa fallback: normalize_rakip ?? gercek_rakip_sayisi ?? rakip_sayisi
+        const processedRakipSayisi = Array.isArray(rakipSayisiRes) 
+          ? rakipSayisiRes.slice(0, 10).map(item => ({
+              ...item,
+              normalize_rakip: item.normalize_rakip ?? item.gercek_rakip_sayisi ?? item.rakip_sayisi ?? 0
+            }))
+          : [];
+        setRakipSayisiData(processedRakipSayisi);
         setTalepRakipOraniData(Array.isArray(talepRakipOraniRes) ? talepRakipOraniRes.slice(0, 10) : []);
       } catch (err) {
         console.error('Veri yüklenemedi:', err);
-        setRakipData([]);
         setIlceList([]);
       } finally {
         setLoading(false);
@@ -102,8 +103,8 @@ export default function Simulasyon() {
   }, [selectedIlceId]);
 
   // Seçilen ilçenin rakip bilgisini bul
-  const selectedIlceData = rakipData.find(item => item.ilce_ad === selectedIlce);
-  
+  const selectedIlceData = rakipSayisiData.find(item => item.ilce_ad === selectedIlce);
+
   // Rakip yoğunluğu seviyesi belirleme
   const getRakipYoğunlukSeviyesi = (rakipSayisi) => {
     if (rakipSayisi === 0) return 'Yok';
@@ -122,6 +123,15 @@ export default function Simulasyon() {
     }).format(value || 0);
   };
 
+  // ✅ Normalize rakibe göre risk (Buca normalize=10 => "Orta" olacak şekilde ayarlı)
+  const getNormalizeRakibeGoreRisk = (normalizeRakip) => {
+    const n = Number(normalizeRakip || 0);
+    if (n <= 2) return 'Düşük';
+    if (n <= 10) return 'Orta';
+    if (n <= 15) return 'Orta-Yüksek';
+    return 'Yüksek';
+  };
+
   // Risk seviyesi renk ve stil
   const getRiskSeviyesiStil = (riskSeviyesi) => {
     const riskValue = riskSeviyesi || '';
@@ -130,6 +140,8 @@ export default function Simulasyon() {
         return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300' };
       case 'Orta':
         return { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300' };
+      case 'Orta-Yüksek':
+        return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300' };
       case 'Yüksek':
         return { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300' };
       default:
@@ -137,88 +149,38 @@ export default function Simulasyon() {
     }
   };
 
-  // Grafik renk fonksiyonları
-  const KONAK_COLOR = '#7c3aed';
-  const OTHER_COLOR = '#c4b5fd';
-
-  const getRakipColor = (rakipSayisi, isKonak) => {
-    if (isKonak) return KONAK_COLOR;
-    if (rakipSayisi >= 5) return '#581c87';
-    if (rakipSayisi >= 3) return '#7c3aed';
-    return '#c4b5fd';
+  // Profesyonel mor paleti (tek renk sistemi)
+  const MOR_PALETI = {
+    cokAcik: '#e9d5ff',  // Çok açık mor
+    acik: '#c4b5fd',     // Açık mor
+    orta: '#a78bfa',     // Orta mor
+    koyu: '#8b5cf6',     // Koyu mor
+    enKoyu: '#7c3aed',   // En koyu mor (vurgu için)
+    cokKoyu: '#6d28d9'   // Çok koyu (en vurgulu)
   };
 
-  const getOranColor = (oran, isKonak) => {
-    if (isKonak) return KONAK_COLOR;
-    if (oran >= 50) return '#059669';
-    if (oran >= 20) return '#7c3aed';
-    return '#dc2626';
+  // Aynı tür metrikler için aynı renk mantığı
+  const getBarColor = (value, maxValue, isHighlight = false) => {
+    if (isHighlight) return MOR_PALETI.cokKoyu;
+    
+    // Değere göre mor tonu seç (yüksek değer = daha koyu)
+    const ratio = maxValue > 0 ? value / maxValue : 0;
+    if (ratio >= 0.8) return MOR_PALETI.enKoyu;
+    if (ratio >= 0.6) return MOR_PALETI.koyu;
+    if (ratio >= 0.4) return MOR_PALETI.orta;
+    if (ratio >= 0.2) return MOR_PALETI.acik;
+    return MOR_PALETI.cokAcik;
   };
 
-  // Tooltip component'leri
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      const isKonak = label === 'Konak';
-      return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-purple-200">
-          <p className="font-semibold text-purple-700 flex items-center gap-1">
-            {isKonak && <MapPin className="w-4 h-4" />}
-            {label}
-            {isKonak && <span className="text-xs bg-purple-100 px-2 py-0.5 rounded-full ml-1">Mevcut Şube</span>}
-          </p>
-          {payload.map((entry, index) => (
-            <p key={index} className="text-gray-700 text-sm">
-              {entry.name}: <span className="font-semibold">{entry.value}</span>
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
+  // En yüksek/en düşük değeri bul (vurgu için)
+  const getMaxValue = (data, key) => {
+    return Math.max(...data.map(item => item[key] || 0), 1);
   };
 
-  const RakipTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      const isKonak = label === 'Konak';
-      const rakipSayisi = payload[0].value;
-      return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-purple-200">
-          <p className="font-semibold text-purple-700 flex items-center gap-1 mb-2">
-            {isKonak && <MapPin className="w-4 h-4" />}
-            {label}
-            {isKonak && <span className="text-xs bg-purple-100 px-2 py-0.5 rounded-full">Mevcut Şube</span>}
-          </p>
-          <p className="text-gray-700 text-sm">
-            Rakip Sayısı: <span className="font-semibold">{rakipSayisi}</span>
-          </p>
-        </div>
-      );
-    }
-    return null;
+  const getMinValue = (data, key) => {
+    return Math.min(...data.map(item => item[key] || 0), 0);
   };
 
-  const OranTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      const isKonak = label === 'Konak';
-      const oran = payload[0].payload.talep_rakip_orani;
-      return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-purple-200">
-          <p className="font-semibold text-purple-700 flex items-center gap-1 mb-2">
-            {isKonak && <MapPin className="w-4 h-4" />}
-            {label}
-            {isKonak && <span className="text-xs bg-purple-100 px-2 py-0.5 rounded-full">Mevcut Şube</span>}
-          </p>
-          <p className="text-gray-700 text-sm">
-            Talep/Rakip Oranı: <span className="font-semibold">{oran}</span>
-          </p>
-          <p className="text-gray-700 text-sm">
-            Randevu: {payload[0].payload.randevu_sayisi} | Rakip: {payload[0].payload.rakip_sayisi}
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className="space-y-6">
@@ -230,7 +192,7 @@ export default function Simulasyon() {
       {/* Karar Destek Özeti - 2x2 Grid */}
       <div className="space-y-6">
         <h2 className="text-xl font-semibold text-gray-800">Karar Destek Özeti</h2>
-        
+
         {chartsLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {[1, 2, 3, 4].map((i) => (
@@ -244,96 +206,135 @@ export default function Simulasyon() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* 1. Kart: İlçe Bazlı Rakip Yoğunluğu */}
-            <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">İlçe Bazlı Rakip Yoğunluğu</h3>
-              {rakipData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={rakipData} margin={{ top: 10, right: 10, left: 0, bottom: 60 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
-                    <XAxis 
-                      dataKey="ilce_ad" 
-                      tick={{ fill: '#6b5b95', fontSize: 11 }}
-                      angle={-45}
-                      textAnchor="end"
-                      height={80}
-                    />
-                    <YAxis tick={{ fill: '#6b5b95', fontSize: 12 }} />
-                    <Tooltip 
-                      content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                          const data = payload[0].payload;
-                          const isSelected = data.ilce_ad === selectedIlce;
-                          return (
-                            <div className={`bg-white p-3 rounded-lg shadow-lg border-2 ${isSelected ? 'border-purple-600' : 'border-purple-200'}`}>
-                              <p className={`font-semibold mb-2 ${isSelected ? 'text-purple-700' : 'text-purple-700'}`}>
-                                {data.ilce_ad}
-                                {isSelected && <span className="ml-2 text-xs bg-purple-600 text-white px-2 py-0.5 rounded-full">Seçili</span>}
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                Rakip Sayısı: <span className="font-semibold">{data.rakip_sayisi}</span>
-                              </p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Bar dataKey="rakip_sayisi" name="Rakip Sayısı">
-                      {rakipData.map((entry, index) => {
-                        const isSelected = entry.ilce_ad === selectedIlce;
-                        let fillColor;
-                        
-                        if (isSelected) {
-                          fillColor = '#5b21b6';
-                        } else {
-                          fillColor = entry.rakip_sayisi > 5 ? '#7c3aed' : entry.rakip_sayisi > 2 ? '#a78bfa' : '#c4b5fd';
-                        }
-                        
-                        return (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={fillColor}
-                            stroke={isSelected ? '#4c1d95' : 'none'}
-                            strokeWidth={isSelected ? 3 : 0}
-                          />
-                        );
-                      })}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-64 text-gray-500">
-                  Veri bulunamadı
-                </div>
-              )}
+            {/* 1. Kart: Talep Payı (%) - Premium Style */}
+            <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-4 shadow-sm">
+              <h3 className="text-base font-medium text-gray-800 mb-2">Talep Payı (%)</h3>
+              <p className="text-xs text-gray-500 mb-4">İlçenin toplam randevu içindeki payı</p>
+              {(() => {
+                // Talep payı hesaplama: (İlçe Randevu Sayısı / Toplam Randevu Sayısı) * 100
+                const toplamRandevu = randevuData.reduce((sum, item) => sum + (item.randevu_sayisi || 0), 0);
+                const talepPayiData = randevuData.map(item => ({
+                  ilce_ad: item.ilce_ad,
+                  talep_payi: toplamRandevu > 0 ? Number(((item.randevu_sayisi || 0) / toplamRandevu * 100).toFixed(2)) : 0,
+                  randevu_sayisi: item.randevu_sayisi || 0
+                }));
+
+                return talepPayiData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={talepPayiData} margin={{ top: 10, right: 10, left: 5, bottom: 50 }}>
+                      <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
+                      <XAxis
+                        dataKey="ilce_ad"
+                        tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={70}
+                        axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                        tickLine={{ stroke: '#c4b5fd' }}
+                      />
+                      <YAxis 
+                        tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
+                        axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                        tickLine={{ stroke: '#c4b5fd' }}
+                        width={45}
+                        label={{ value: '%', angle: -90, position: 'insideLeft', fill: '#5b21b6', fontSize: 11, fontWeight: 500, dx: -5 }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid #c4b5fd',
+                          borderRadius: '12px',
+                          padding: '14px 18px',
+                          boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
+                        }}
+                        labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
+                        itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
+                        formatter={(value) => [`${Number(value).toFixed(2)}%`, '']}
+                        labelFormatter={(label) => `📊 ${label}`}
+                        cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
+                      />
+                      <Bar dataKey="talep_payi" name="Talep Payı (%)" radius={[8, 8, 0, 0]}>
+                        {(() => {
+                          const maxValue = Math.max(...talepPayiData.map(item => item.talep_payi || 0), 1);
+                          return talepPayiData.map((entry, index) => {
+                            const talepPayi = entry.talep_payi || 0;
+                            const isMax = talepPayi === maxValue;
+                            const fillColor = getBarColor(talepPayi, maxValue, isMax);
+                            return (
+                              <Cell
+                                key={`cell-${index}`}
+                                fill={fillColor}
+                                style={{ filter: isMax ? 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.3))' : 'none' }}
+                              />
+                            );
+                          });
+                        })()}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-64 text-gray-500">
+                    Veri bulunamadı
+                  </div>
+                );
+              })()}
             </div>
 
-            {/* 2. Kart: İlçeye Göre Müşteri Sayısı */}
-            <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">İlçeye Göre Müşteri Sayısı</h3>
+            {/* 2. Kart: Müşteri Sayısı (İlçe) - Premium Style */}
+            <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-4 shadow-sm">
+              <h3 className="text-base font-medium text-gray-800 mb-2">Müşteri Sayısı (İlçe)</h3>
+              <p className="text-xs text-gray-500 mb-4">İlçe bazında müşteri dağılımı</p>
               {musteriData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={musteriData} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
-                    <XAxis 
-                      dataKey="ilce" 
-                      tick={{ fill: '#6b5b95', fontSize: 11 }}
+                  <BarChart data={musteriData} margin={{ top: 10, right: 10, left: 5, bottom: 50 }}>
+                    <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
+                    <XAxis
+                      dataKey="ilce"
+                      tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
                       angle={-45}
                       textAnchor="end"
-                      height={60}
+                      height={70}
+                      axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#c4b5fd' }}
                     />
-                    <YAxis tick={{ fill: '#6b5b95', fontSize: 12 }} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="musteri_sayisi" name="Müşteri Sayısı" radius={[4, 4, 0, 0]}>
-                      {musteriData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={entry.ilce === 'Konak' ? KONAK_COLOR : OTHER_COLOR}
-                          stroke={entry.ilce === 'Konak' ? '#5b21b6' : 'transparent'}
-                          strokeWidth={entry.ilce === 'Konak' ? 2 : 0}
-                        />
-                      ))}
+                    <YAxis 
+                      tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
+                      axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#c4b5fd' }}
+                      width={45}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid #c4b5fd',
+                        borderRadius: '12px',
+                        padding: '14px 18px',
+                        boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
+                      }}
+                      labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
+                      itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
+                      formatter={(value) => [`${value} müşteri`, '']}
+                      labelFormatter={(label) => `📍 ${label}`}
+                      cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
+                    />
+                    <Bar dataKey="musteri_sayisi" name="Müşteri Sayısı" radius={[8, 8, 0, 0]}>
+                      {(() => {
+                        const maxValue = getMaxValue(musteriData, 'musteri_sayisi');
+                        return musteriData.map((entry, index) => {
+                          const musteriSayisi = entry.musteri_sayisi || 0;
+                          const isMax = musteriSayisi === maxValue;
+                          const fillColor = getBarColor(musteriSayisi, maxValue, isMax);
+                          return (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={fillColor}
+                              style={{ filter: isMax ? 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.3))' : 'none' }}
+                            />
+                          );
+                        });
+                      })()}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -344,31 +345,59 @@ export default function Simulasyon() {
               )}
             </div>
 
-            {/* 3. Kart: İlçeye Göre Rakip Sayısı */}
-            <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">İlçeye Göre Rakip Sayısı</h3>
+            {/* 3. Kart: Rakip Sayısı (İlçe) - Premium Style */}
+            <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-4 shadow-sm">
+              <h3 className="text-base font-medium text-gray-800 mb-2">Rakip Sayısı (İlçe)</h3>
+              <p className="text-xs text-gray-500 mb-4">Normalize edilmiş rakip sayısı</p>
               {rakipSayisiData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={rakipSayisiData} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
-                    <XAxis 
-                      dataKey="ilce_ad" 
-                      tick={{ fill: '#6b5b95', fontSize: 11 }}
+                    <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
+                    <XAxis
+                      dataKey="ilce_ad"
+                      tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
                       angle={-45}
                       textAnchor="end"
                       height={60}
+                      axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#c4b5fd' }}
                     />
-                    <YAxis tick={{ fill: '#6b5b95', fontSize: 12 }} />
-                    <Tooltip content={<RakipTooltip />} />
-                    <Bar dataKey="rakip_sayisi" name="Rakip Sayısı" radius={[4, 4, 0, 0]}>
-                      {rakipSayisiData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={getRakipColor(entry.rakip_sayisi, entry.ilce_ad === 'Konak')}
-                          stroke={entry.ilce_ad === 'Konak' ? '#5b21b6' : 'transparent'}
-                          strokeWidth={entry.ilce_ad === 'Konak' ? 2 : 0}
-                        />
-                      ))}
+                    <YAxis 
+                      tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
+                      axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#c4b5fd' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid #c4b5fd',
+                        borderRadius: '12px',
+                        padding: '14px 18px',
+                        boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
+                      }}
+                      labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
+                      itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
+                      formatter={(value) => [`${value} rakip`, '']}
+                      labelFormatter={(label) => `📍 ${label}`}
+                      cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
+                    />
+                    <Bar dataKey="normalize_rakip" name="Rakip Sayısı" radius={[8, 8, 0, 0]}>
+                      {(() => {
+                        const maxValue = getMaxValue(rakipSayisiData, 'normalize_rakip');
+                        return rakipSayisiData.map((entry, index) => {
+                          const normalizeRakip = entry.normalize_rakip ?? entry.gercek_rakip_sayisi ?? entry.rakip_sayisi ?? 0;
+                          const isMax = normalizeRakip === maxValue;
+                          const fillColor = getBarColor(normalizeRakip, maxValue, isMax);
+                          return (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={fillColor}
+                              style={{ filter: isMax ? 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.3))' : 'none' }}
+                            />
+                          );
+                        });
+                      })()}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -379,33 +408,59 @@ export default function Simulasyon() {
               )}
             </div>
 
-            {/* 4. Kart: Talep / Rakip Oranı */}
-            <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Talep / Rakip Oranı (Yatırım Fırsatı)</h3>
+            {/* 4. Kart: Talep / Rakip Oranı - Premium Style */}
+            <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-4 shadow-sm">
+              <h3 className="text-base font-medium text-gray-800 mb-2">Talep / Rakip Oranı</h3>
+              <p className="text-xs text-gray-500 mb-4">Yatırım fırsatı göstergesi</p>
               {talepRakipOraniData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={talepRakipOraniData} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
-                    <XAxis 
-                      dataKey="ilce_ad" 
-                      tick={{ fill: '#6b5b95', fontSize: 11 }}
+                    <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
+                    <XAxis
+                      dataKey="ilce_ad"
+                      tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
                       angle={-45}
                       textAnchor="end"
                       height={60}
+                      axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#c4b5fd' }}
                     />
-                    <YAxis tick={{ fill: '#6b5b95', fontSize: 12 }} />
-                    <Tooltip content={<OranTooltip />} />
-                    <ReferenceLine y={20} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: 'Orta Risk', fill: '#f59e0b', fontSize: 10 }} />
-                    <ReferenceLine y={50} stroke="#059669" strokeDasharray="3 3" label={{ value: 'Düşük Risk', fill: '#059669', fontSize: 10 }} />
-                    <Bar dataKey="talep_rakip_orani" name="Talep/Rakip Oranı" radius={[4, 4, 0, 0]}>
-                      {talepRakipOraniData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={getOranColor(entry.talep_rakip_orani, entry.ilce_ad === 'Konak')}
-                          stroke={entry.ilce_ad === 'Konak' ? '#5b21b6' : 'transparent'}
-                          strokeWidth={entry.ilce_ad === 'Konak' ? 2 : 0}
-                        />
-                      ))}
+                    <YAxis 
+                      tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
+                      axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                      tickLine={{ stroke: '#c4b5fd' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid #c4b5fd',
+                        borderRadius: '12px',
+                        padding: '14px 18px',
+                        boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
+                      }}
+                      labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
+                      itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
+                      formatter={(value) => [`${value.toFixed(2)} oran`, '']}
+                      labelFormatter={(label) => `📊 ${label}`}
+                      cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
+                    />
+                    <Bar dataKey="talep_rakip_orani" name="Talep/Rakip Oranı" radius={[8, 8, 0, 0]}>
+                      {(() => {
+                        const maxValue = getMaxValue(talepRakipOraniData, 'talep_rakip_orani');
+                        return talepRakipOraniData.map((entry, index) => {
+                          const oran = entry.talep_rakip_orani || 0;
+                          const isMax = oran === maxValue;
+                          const fillColor = getBarColor(oran, maxValue, isMax);
+                          return (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={fillColor}
+                              style={{ filter: isMax ? 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.3))' : 'none' }}
+                            />
+                          );
+                        });
+                      })()}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -484,24 +539,40 @@ export default function Simulasyon() {
                   </div>
                 ))}
               </div>
-            ) : ilceOzet ? (
+            ) : ilceOzet ? (() => {
+              // ═══════════════════════════════════════════════════════════════
+              // TEK KAYNAK: Normal Senaryo Müşteri Hesaplama
+              // ═══════════════════════════════════════════════════════════════
+              const baseMusteri = ilceOzet.tahmini_musteri || 0;
+              
+              // Çarpanlar (açılış + kampanya + transfer etkileri)
+              const ACILIS_ETKISI = 0.15;    // +%15
+              const KAMPANYA_ETKISI = 0.10;  // +%10
+              const YAKINLIK_ETKISI = 0.05;  // +%5
+              const TOPLAM_CARPAN = 1 + ACILIS_ETKISI + KAMPANYA_ETKISI + YAKINLIK_ETKISI; // 1.30
+              
+              // Normal Senaryo = Gerçekçi Tahmin (TEK KAYNAK)
+              const normalSenaryoMusteri = Math.round(baseMusteri * TOPLAM_CARPAN);
+              const ortalamaFiyat = 4500;
+              
+              return (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Tahmini Aylık Müşteri */}
+                {/* Gerçekçi Aylık Müşteri Tahmini = Normal Senaryo Değeri */}
                 <div className="bg-white rounded-xl shadow-md border border-purple-100 p-6">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="bg-purple-100 p-3 rounded-lg">
                       <Users className="w-6 h-6 text-purple-600" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-gray-600">Tahmini Aylık Müşteri</h4>
-                      <p className="text-2xl font-bold text-gray-800">{ilceOzet.tahmini_musteri || 0}</p>
+                      <h4 className="text-sm font-semibold text-gray-600">Gerçekçi Aylık Müşteri Tahmini</h4>
+                      <p className="text-2xl font-bold text-gray-800">{normalSenaryoMusteri}</p>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500">
-                    {ilceOzet?.gercek_rakip_sayisi !== undefined && (
-                      <>Gerçekçi rakip sayısı: {ilceOzet.gercek_rakip_sayisi} (normalize edilmiş)</>
-                    )}
-                    {!ilceOzet?.gercek_rakip_sayisi && 'Rakip yoğunluğuna göre hesaplanmıştır'}
+                    Açılış, kampanya ve transfer etkileri dahil edilmiştir.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Normal Senaryo referans değeri
                   </p>
                 </div>
 
@@ -513,58 +584,47 @@ export default function Simulasyon() {
                     </div>
                     <div>
                       <h4 className="text-sm font-semibold text-gray-600">Tahmini Aylık Gelir</h4>
-                      <p className="text-2xl font-bold text-gray-800">{formatCurrency(ilceOzet.tahmini_gelir || 0)}</p>
+                      <p className="text-2xl font-bold text-gray-800">{formatCurrency(normalSenaryoMusteri * ortalamaFiyat)}</p>
                     </div>
                   </div>
-                  {ilceOzet.aylik_randevu !== undefined && (
-                    <p className="text-xs text-gray-500 mb-1">
-                      Aylık Randevu: {ilceOzet.aylik_randevu.toLocaleString('tr-TR')}
-                    </p>
-                  )}
-                  {ilceOzet.agirlikli_ortalama_randevu !== undefined && (
-                    <p className="text-xs text-gray-500">
-                      Varsayım: müşteri segmentli ağırlıklı ortalama = {ilceOzet.agirlikli_ortalama_randevu.toFixed(2)}
-                    </p>
-                  )}
                 </div>
 
-                {/* Risk Seviyesi */}
+                {/* ✅ Risk Seviyesi (SADECE BURASI DÜZELTİLDİ) */}
                 <div className="bg-white rounded-xl shadow-md border border-purple-100 p-6">
-                  <div className="flex items-center gap-3 mb-3">
-                    {(() => {
-                      const riskValue = ilceOzet.risk_seviyesi || ilceOzet.risk;
-                      const riskStil = getRiskSeviyesiStil(riskValue);
-                      return (
-                        <>
+                  {(() => {
+                    const normalizeRakip =
+                      ilceOzet.gercek_rakip_sayisi ??
+                      ilceOzet.normalize_rakip ??
+                      ilceOzet.rakip_sayisi ??
+                      0;
+
+                    const riskValue = getNormalizeRakibeGoreRisk(normalizeRakip);
+                    const riskStil = getRiskSeviyesiStil(riskValue);
+
+                    return (
+                      <>
+                        <div className="flex items-center gap-3 mb-3">
                           <div className={`p-3 rounded-lg ${riskStil.bg}`}>
                             <AlertTriangle className={`w-6 h-6 ${riskStil.text}`} />
                           </div>
+
                           <div>
-                            <h4 className="text-sm font-semibold text-gray-600">Risk Seviyesi</h4>
-                            <p className={`text-2xl font-bold ${riskStil.text}`}>
-                              {(() => {
-                                if (!riskValue) {
-                                  console.error('⚠️ Risk seviyesi bulunamadı:', ilceOzet);
-                                  return null;
-                                }
-                                if (['Düşük', 'Orta', 'Yüksek'].includes(riskValue)) {
-                                  return riskValue;
-                                }
-                                console.error('⚠️ Geçersiz risk seviyesi:', riskValue);
-                                return null;
-                              })()}
-                            </p>
+                            <h4 className="text-sm font-semibold text-gray-600">Risk Seviyesi (Normalize Rakibe Göre)</h4>
+                            <p className="text-xs text-gray-500 mt-1">Gerçekçi tahmini rakip sayısı esas alınır</p>
+                            <p className={`text-2xl font-bold ${riskStil.text}`}>{riskValue}</p>
                           </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                  <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getRiskSeviyesiStil(ilceOzet.risk_seviyesi || ilceOzet.risk).bg} ${getRiskSeviyesiStil(ilceOzet.risk_seviyesi || ilceOzet.risk).text} border ${getRiskSeviyesiStil(ilceOzet.risk_seviyesi || ilceOzet.risk).border}`}>
-                    {ilceOzet.gercek_rakip_sayisi || ilceOzet.normalize_rakip || ilceOzet.rakip_sayisi || 0} rakip (normalize edilmiş)
-                  </div>
+                        </div>
+
+                        <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${riskStil.bg} ${riskStil.text} border ${riskStil.border}`}>
+                          {normalizeRakip} rakip (normalize edilmiş)
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
-            ) : (
+              );
+            })() : (
               <div className="bg-white rounded-xl shadow-md border border-purple-100 p-6 text-center">
                 <p className="text-gray-500">Simülasyon verisi yükleniyor...</p>
               </div>
@@ -578,36 +638,48 @@ export default function Simulasyon() {
             <h2 className="text-xl font-semibold text-gray-800">Senaryo Analizi</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {(() => {
-                // Backend'den gelen değerler
+                // ═══════════════════════════════════════════════════════════════
+                // TEK KAYNAK HESAPLAMA
+                // ═══════════════════════════════════════════════════════════════
                 const baseMusteri = ilceOzet.tahmini_musteri || 0;
-                const sabitGider = ilceOzet.toplam_gider || 130000; // Varsayılan gider
-                
-                // Ortalama fiyat = ortalama_ziyaret_sayisi * ortalama_sepet_tutari = 2.5 * 1800 = 4500
+                const sabitGider = ilceOzet.toplam_gider || 130000;
                 const ortalamaFiyat = 4500;
+                
+                // Çarpanlar (açılış + kampanya + transfer etkileri)
+                const ACILIS_ETKISI = 0.15;    // +%15
+                const KAMPANYA_ETKISI = 0.10;  // +%10
+                const YAKINLIK_ETKISI = 0.05;  // +%5
+                const TOPLAM_CARPAN = 1 + ACILIS_ETKISI + KAMPANYA_ETKISI + YAKINLIK_ETKISI; // 1.30
+                
+                // Normal Senaryo = Referans (Gerçekçi Tahmin ile aynı)
+                const normalSenaryoMusteri = Math.round(baseMusteri * TOPLAM_CARPAN);
 
-                // Senaryolar
+                // Senaryolar (Normal referans alınarak)
                 const senaryolar = [
-                  {
-                    ad: 'Kötü',
-                    musteri: Math.round(baseMusteri * 0.7),
-                    renk: 'red'
+                  { 
+                    ad: 'Kötü', 
+                    musteri: Math.round(normalSenaryoMusteri * 0.54), // ≈ baseMusteri * 0.7
+                    renk: 'red',
+                    aciklama: 'Muhafazakâr tahmin'
                   },
-                  {
-                    ad: 'Normal',
-                    musteri: baseMusteri,
-                    renk: 'yellow'
+                  { 
+                    ad: 'Normal', 
+                    musteri: normalSenaryoMusteri, // TEK KAYNAK
+                    renk: 'yellow',
+                    aciklama: 'Gerçekçi tahmin (referans)'
                   },
-                  {
-                    ad: 'İyi',
-                    musteri: Math.round(baseMusteri * 1.25),
-                    renk: 'green'
+                  { 
+                    ad: 'İyi', 
+                    musteri: Math.round(normalSenaryoMusteri * 1.25),
+                    renk: 'green',
+                    aciklama: 'Optimistik senaryo'
                   }
                 ];
 
                 return senaryolar.map((senaryo, index) => {
                   const ciro = senaryo.musteri * ortalamaFiyat;
                   const netKar = ciro - sabitGider;
-                  
+
                   // Risk seviyesi
                   let riskSeviyesi;
                   let riskRenk;
@@ -630,16 +702,20 @@ export default function Simulasyon() {
                   };
 
                   return (
-                    <div 
+                    <div
                       key={index}
                       className={`bg-white rounded-xl shadow-md border-2 ${kartRenkSınıfları[senaryo.renk]} p-6`}
                     >
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className={`text-lg font-bold ${
-                          senaryo.renk === 'red' ? 'text-red-700' : 
-                          senaryo.renk === 'yellow' ? 'text-yellow-700' : 
-                          'text-green-700'
-                        }`}>
+                        <h3
+                          className={`text-lg font-bold ${
+                            senaryo.renk === 'red'
+                              ? 'text-red-700'
+                              : senaryo.renk === 'yellow'
+                                ? 'text-yellow-700'
+                                : 'text-green-700'
+                          }`}
+                        >
                           {senaryo.ad} Senaryo
                         </h3>
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${riskRenk}`}>
@@ -651,6 +727,9 @@ export default function Simulasyon() {
                         <div>
                           <p className="text-sm text-gray-600 mb-1">Aylık Müşteri</p>
                           <p className="text-2xl font-bold text-gray-800">{senaryo.musteri}</p>
+                          {senaryo.aciklama && (
+                            <p className="text-xs text-gray-400 mt-0.5">{senaryo.aciklama}</p>
+                          )}
                         </div>
 
                         <div>
@@ -667,15 +746,17 @@ export default function Simulasyon() {
                           </p>
                         </div>
 
-                        <div className={`pt-3 border-t-2 ${
-                          senaryo.renk === 'red' ? 'border-red-200' : 
-                          senaryo.renk === 'yellow' ? 'border-yellow-200' : 
-                          'border-green-200'
-                        }`}>
+                        <div
+                          className={`pt-3 border-t-2 ${
+                            senaryo.renk === 'red'
+                              ? 'border-red-200'
+                              : senaryo.renk === 'yellow'
+                                ? 'border-yellow-200'
+                                : 'border-green-200'
+                          }`}
+                        >
                           <p className="text-sm text-gray-600 mb-1">Net Kâr</p>
-                          <p className={`text-2xl font-bold ${
-                            netKar < 0 ? 'text-red-600' : 'text-green-600'
-                          }`}>
+                          <p className={`text-2xl font-bold ${netKar < 0 ? 'text-red-600' : 'text-green-600'}`}>
                             {formatCurrency(netKar)}
                           </p>
                         </div>

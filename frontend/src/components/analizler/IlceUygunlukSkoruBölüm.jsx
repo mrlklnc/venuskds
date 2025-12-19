@@ -117,9 +117,9 @@ export default function IlceUygunlukSkoruBölüm() {
       {/* Grafik ve Karar Yorumu - Yan Yana */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Grafik - 2/3 genişlik */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-md border border-purple-100 p-4">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-4">
           <div className="mb-4">
-            <h4 className="text-base font-semibold text-gray-800">Yeni Şube İçin İlçe Uygunluk Skoru</h4>
+            <h4 className="text-base font-medium text-gray-800">Uygunluk Skoru (İlçe)</h4>
             <p className="text-xs text-gray-500 mt-1">
               Talep, gelir potansiyeli ve rekabet verileri birlikte değerlendirilmiştir.
             </p>
@@ -130,66 +130,69 @@ export default function IlceUygunlukSkoruBölüm() {
                 data={chartData.slice(0, 10)}
                 margin={{ top: 5, right: 20, left: 0, bottom: 50 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" strokeOpacity={0.15} />
                 <XAxis 
                   dataKey="ilce_ad" 
-                  tick={{ fill: '#6b5b95', fontSize: 11 }}
+                  tick={{ fill: '#6b7280', fontSize: 11, fontWeight: 400 }}
                   angle={-45}
                   textAnchor="end"
                   height={70}
                   interval={0}
+                  axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
                 />
                 <YAxis 
                   domain={[0, 100]}
-                  tick={{ fill: '#6b5b95', fontSize: 11 }}
-                  label={{ value: 'Uygunluk Skoru (0-100)', angle: -90, position: 'insideLeft', fill: '#6b5b95', fontSize: 12 }}
+                  tick={{ fill: '#6b7280', fontSize: 11, fontWeight: 400 }}
+                  axisLine={{ stroke: '#e5e7eb', strokeWidth: 1 }}
+                  label={{ value: 'Uygunluk Skoru (0-100)', angle: -90, position: 'insideLeft', fill: '#6b7280', fontSize: 11 }}
                 />
                 <Tooltip 
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const item = payload[0].payload;
-                      return (
-                        <div className="bg-white p-3 rounded-lg shadow-lg border border-purple-200">
-                          <p className="font-semibold text-purple-700 text-sm mb-2">{item.ilce_ad}</p>
-                          <p className="text-xs text-gray-700 mb-1">
-                            <span className="font-medium">Uygunluk Skoru:</span>{' '}
-                            <span className="font-bold text-purple-600">{item.uygunluk_skoru}/100</span>
-                          </p>
-                          <div className="mt-2 pt-2 border-t border-gray-200 space-y-0.5 text-xs">
-                            <p className="text-gray-600">Talep: {item.talep_skoru} puan ({item.randevu_sayisi} randevu)</p>
-                            <p className="text-gray-600">Gelir: {item.gelir_skoru} puan</p>
-                            <p className="text-gray-600">Rekabet: {item.rakip_skoru} puan</p>
-                          </div>
-                        </div>
-                      );
-                    }
-                    return null;
+                  contentStyle={{
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                   }}
+                  labelStyle={{ color: '#374151', fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}
+                  itemStyle={{ color: '#6b7280', fontSize: '12px' }}
                 />
-                <Bar dataKey="uygunluk_skoru" name="Uygunluk Skoru" radius={[4, 4, 0, 0]}>
-                  {chartData.slice(0, 10).map((entry, index) => {
+                <Bar dataKey="uygunluk_skoru" name="Uygunluk Skoru" radius={[6, 6, 0, 0]}>
+                  {(() => {
                     const maxScore = Math.max(...chartData.map(d => d.uygunluk_skoru), 0);
-                    const isHighest = entry.uygunluk_skoru === maxScore;
-                    // Mor tonları - birbirinden ayırt edilebilir
-                    const colors = [
-                      '#7c3aed', // Koyu mor - en yüksek skor
-                      '#8b5cf6', // Mor
-                      '#a78bfa', // Orta mor
-                      '#c4b5fd', // Açık mor
-                      '#ddd6fe', // Çok açık mor
-                      '#ede9fe', // En açık mor
-                      '#f3e8ff', // Çok açık
-                      '#faf5ff', // Neredeyse beyaz
-                    ];
-                    return (
-                      <Cell 
-                        key={`cell-${index}`} 
-                        fill={isHighest ? HIGHEST_SCORE_COLOR : colors[index % colors.length]}
-                        stroke={isHighest ? '#5b21b6' : 'transparent'}
-                        strokeWidth={isHighest ? 2 : 0}
-                      />
-                    );
-                  })}
+                    const MOR_PALETI = {
+                      cokAcik: '#e9d5ff',
+                      acik: '#c4b5fd',
+                      orta: '#a78bfa',
+                      koyu: '#8b5cf6',
+                      enKoyu: '#7c3aed',
+                      cokKoyu: '#6d28d9'
+                    };
+                    return chartData.slice(0, 10).map((entry, index) => {
+                      const isHighest = entry.uygunluk_skoru === maxScore;
+                      const ratio = maxScore > 0 ? entry.uygunluk_skoru / maxScore : 0;
+                      let fillColor;
+                      if (isHighest) {
+                        fillColor = MOR_PALETI.cokKoyu;
+                      } else if (ratio >= 0.8) {
+                        fillColor = MOR_PALETI.enKoyu;
+                      } else if (ratio >= 0.6) {
+                        fillColor = MOR_PALETI.koyu;
+                      } else if (ratio >= 0.4) {
+                        fillColor = MOR_PALETI.orta;
+                      } else if (ratio >= 0.2) {
+                        fillColor = MOR_PALETI.acik;
+                      } else {
+                        fillColor = MOR_PALETI.cokAcik;
+                      }
+                      return (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={fillColor}
+                        />
+                      );
+                    });
+                  })()}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

@@ -12,9 +12,7 @@ import {
 } from 'recharts';
 import { getMusteriIlce, getIlceRandevu } from '../../services/dssService';
 import { MapPin } from 'lucide-react';
-
-const KONAK_COLOR = '#7c3aed'; // Mor - mevcut şube
-const OTHER_COLOR = '#c4b5fd'; // Açık mor - diğer ilçeler
+import { GRID_STYLE, AXIS_STYLE, TOOLTIP_STYLE, BAR_COLORS, getBarColor } from '../../styles/chartTheme';
 
 export default function MusteriAnaliziTab() {
   const [musteriData, setMusteriData] = useState([]);
@@ -58,26 +56,6 @@ export default function MusteriAnaliziTab() {
     );
   }
 
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      const isKonak = label === 'Konak';
-      return (
-        <div className="bg-white p-3 rounded-lg shadow-lg border border-purple-200">
-          <p className="font-semibold text-purple-700 flex items-center gap-1">
-            {isKonak && <MapPin className="w-4 h-4" />}
-            {label}
-            {isKonak && <span className="text-xs bg-purple-100 px-2 py-0.5 rounded-full ml-1">Mevcut Şube</span>}
-          </p>
-          {payload.map((entry, index) => (
-            <p key={index} className="text-gray-700 text-sm">
-              {entry.name}: <span className="font-semibold">{entry.value}</span>
-            </p>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className="space-y-6">
@@ -93,31 +71,52 @@ export default function MusteriAnaliziTab() {
 
       {/* Grafikler - Yan Yana */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Grafik A - İlçeye Göre Müşteri Sayısı */}
-        <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">İlçeye Göre Müşteri Sayısı</h3>
+        {/* Grafik A - Müşteri Sayısı (İlçe) */}
+        <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-4 shadow-sm">
+          <h3 className="text-base font-medium text-gray-800 mb-2">Müşteri Sayısı (İlçe)</h3>
+          <p className="text-xs text-gray-500 mb-4">İlçe bazında müşteri dağılımı</p>
           {musteriData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={musteriData} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
+                <CartesianGrid {...GRID_STYLE.premium} />
                 <XAxis 
                   dataKey="ilce" 
-                  tick={{ fill: '#6b5b95', fontSize: 11 }}
+                  tick={AXIS_STYLE.premium.tick}
                   angle={-45}
                   textAnchor="end"
                   height={60}
+                  axisLine={AXIS_STYLE.premium.axisLine}
+                  tickLine={AXIS_STYLE.premium.tickLine}
                 />
-                <YAxis tick={{ fill: '#6b5b95', fontSize: 12 }} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="musteri_sayisi" name="Müşteri Sayısı" radius={[4, 4, 0, 0]}>
-                  {musteriData.map((entry, index) => (
-                    <Cell 
-                      key={`cell-${index}`} 
-                      fill={entry.ilce === 'Konak' ? KONAK_COLOR : OTHER_COLOR}
-                      stroke={entry.ilce === 'Konak' ? '#5b21b6' : 'transparent'}
-                      strokeWidth={entry.ilce === 'Konak' ? 2 : 0}
-                    />
-                  ))}
+                <YAxis 
+                  tick={AXIS_STYLE.premium.tick}
+                  axisLine={AXIS_STYLE.premium.axisLine}
+                  tickLine={AXIS_STYLE.premium.tickLine}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE.premium.contentStyle}
+                  labelStyle={TOOLTIP_STYLE.premium.labelStyle}
+                  itemStyle={TOOLTIP_STYLE.premium.itemStyle}
+                  cursor={TOOLTIP_STYLE.premium.cursor}
+                  formatter={(value) => [`${value} müşteri`, '']}
+                  labelFormatter={(label) => `📍 ${label}`}
+                />
+                <Bar dataKey="musteri_sayisi" name="Müşteri Sayısı" radius={[8, 8, 0, 0]}>
+                  {(() => {
+                    const maxValue = Math.max(...musteriData.map(item => item.musteri_sayisi || 0), 1);
+                    return musteriData.map((entry, index) => {
+                      const musteriSayisi = entry.musteri_sayisi || 0;
+                      const isMax = musteriSayisi === maxValue;
+                      const fillColor = getBarColor(musteriSayisi, maxValue, isMax);
+                      return (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={fillColor}
+                          style={{ filter: isMax ? 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.3))' : 'none' }}
+                        />
+                      );
+                    });
+                  })()}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -128,31 +127,52 @@ export default function MusteriAnaliziTab() {
           )}
         </div>
 
-        {/* Grafik B - İlçeye Göre Randevu Sayısı */}
-        <div className="bg-white rounded-xl shadow-md border border-purple-100 p-4">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">İlçeye Göre Randevu Sayısı</h3>
+        {/* Grafik B - Randevu Sayısı (İlçe) */}
+        <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-4 shadow-sm">
+          <h3 className="text-base font-medium text-gray-800 mb-2">Randevu Sayısı (İlçe)</h3>
+          <p className="text-xs text-gray-500 mb-4">İlçe bazında randevu dağılımı</p>
           {randevuData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={randevuData} margin={{ top: 10, right: 10, left: 0, bottom: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e9d5ff" />
+                <CartesianGrid {...GRID_STYLE.premium} />
                 <XAxis 
                   dataKey="ilce_ad" 
-                  tick={{ fill: '#6b5b95', fontSize: 11 }}
+                  tick={AXIS_STYLE.premium.tick}
                   angle={-45}
                   textAnchor="end"
                   height={60}
+                  axisLine={AXIS_STYLE.premium.axisLine}
+                  tickLine={AXIS_STYLE.premium.tickLine}
                 />
-                <YAxis tick={{ fill: '#6b5b95', fontSize: 12 }} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="randevu_sayisi" name="Randevu Sayısı" radius={[4, 4, 0, 0]}>
-                  {randevuData.map((entry, index) => (
-                    <Cell 
-                      key={`cell-${index}`} 
-                      fill={entry.ilce_ad === 'Konak' ? KONAK_COLOR : OTHER_COLOR}
-                      stroke={entry.ilce_ad === 'Konak' ? '#5b21b6' : 'transparent'}
-                      strokeWidth={entry.ilce_ad === 'Konak' ? 2 : 0}
-                    />
-                  ))}
+                <YAxis 
+                  tick={AXIS_STYLE.premium.tick}
+                  axisLine={AXIS_STYLE.premium.axisLine}
+                  tickLine={AXIS_STYLE.premium.tickLine}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE.premium.contentStyle}
+                  labelStyle={TOOLTIP_STYLE.premium.labelStyle}
+                  itemStyle={TOOLTIP_STYLE.premium.itemStyle}
+                  cursor={TOOLTIP_STYLE.premium.cursor}
+                  formatter={(value) => [`${value} randevu`, '']}
+                  labelFormatter={(label) => `📍 ${label}`}
+                />
+                <Bar dataKey="randevu_sayisi" name="Randevu Sayısı" radius={[8, 8, 0, 0]}>
+                  {(() => {
+                    const maxValue = Math.max(...randevuData.map(item => item.randevu_sayisi || 0), 1);
+                    return randevuData.map((entry, index) => {
+                      const randevuSayisi = entry.randevu_sayisi || 0;
+                      const isMax = randevuSayisi === maxValue;
+                      const fillColor = getBarColor(randevuSayisi, maxValue, isMax);
+                      return (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={fillColor}
+                          style={{ filter: isMax ? 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.3))' : 'none' }}
+                        />
+                      );
+                    });
+                  })()}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

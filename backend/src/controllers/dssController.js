@@ -46,6 +46,7 @@ export const getMusteriIlce = async (req, res) => {
         COUNT(m.musteri_id) AS musteri_sayisi
       FROM musteri m
       LEFT JOIN ilce i ON m.ilce_id = i.ilce_id
+      WHERE m.is_test = 0
       GROUP BY m.ilce_id, i.ilce_ad
       ORDER BY musteri_sayisi DESC
     `);
@@ -67,15 +68,19 @@ export const getMusteriIlce = async (req, res) => {
  * Monthly Appointment Trend
  * GET /api/dss/aylik-randevu
  * Returns: ay, toplam_randevu
+ * 
+ * IMPORTANT: Uses same filter as dashboard (m.is_test = 0) to ensure consistency
  */
 export const getAylikRandevu = async (req, res) => {
   try {
     const [data] = await pool.execute(`
       SELECT 
-        DATE_FORMAT(tarih, '%Y-%m') AS ay,
+        DATE_FORMAT(r.tarih, '%Y-%m') AS ay,
         COUNT(*) AS toplam_randevu
-      FROM randevu
-      WHERE tarih IS NOT NULL
+      FROM randevu r
+      JOIN musteri m ON r.musteri_id = m.musteri_id
+      WHERE r.tarih IS NOT NULL
+        AND m.is_test = 0
       GROUP BY ay
       ORDER BY ay DESC
     `);
@@ -214,37 +219,62 @@ export const getIlceUygunlukSkoru = async (req, res) => {
         COUNT(DISTINCT r.randevu_id) AS randevu_sayisi,
         COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi
       FROM ilce i
-      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id
+      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id AND m.is_test = 0
       LEFT JOIN randevu r ON r.musteri_id = m.musteri_id
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
       GROUP BY i.ilce_id, i.ilce_ad, i.ort_gelir
       ORDER BY musteri_sayisi DESC
     `);
 
+    // Normalize edilmiş rakip sayılarını hesapla
+    const dataWithNormalizeRakip = data.map(item => {
+      const ilceAd = item.ilce_ad || "";
+      const bilinenRakip = Number(item.rakip_sayisi) || 0;
+      
+      // Normalize edilmiş rakip sayısı (rekabet yoğunluğu)
+      let normalizeRakip = bilinenRakip;
+      if (ilceAd === 'Karşıyaka') {
+        normalizeRakip = bilinenRakip * 8;
+      } else if (ilceAd === 'Buca') {
+        normalizeRakip = bilinenRakip * 5;
+      } else if (ilceAd === 'Konak') {
+        normalizeRakip = bilinenRakip * 6;
+      } else {
+        normalizeRakip = bilinenRakip * 4;
+      }
+      
+      return {
+        ...item,
+        normalize_rakip: normalizeRakip
+      };
+    });
+
     // Normalize için max değerleri bul
-    const maxMusteri = Math.max(...data.map(d => Number(d.musteri_sayisi) || 0), 1);
-    const maxRandevu = Math.max(...data.map(d => Number(d.randevu_sayisi) || 0), 1);
-    const maxGelir = Math.max(...data.map(d => Number(d.ort_gelir) || 0), 1);
-    const maxRakip = Math.max(...data.map(d => Number(d.rakip_sayisi) || 0), 1);
+    const maxMusteri = Math.max(...dataWithNormalizeRakip.map(d => Number(d.musteri_sayisi) || 0), 1);
+    const maxRandevu = Math.max(...dataWithNormalizeRakip.map(d => Number(d.randevu_sayisi) || 0), 1);
+    const maxGelir = Math.max(...dataWithNormalizeRakip.map(d => Number(d.ort_gelir) || 0), 1);
+    const maxNormalizeRakip = Math.max(...dataWithNormalizeRakip.map(d => Number(d.normalize_rakip) || 0), 1);
 
     // Uygunluk skoru hesapla (0-100)
-    const result = data.map(item => {
+    const result = dataWithNormalizeRakip.map(item => {
       const musteriSayisi = Number(item.musteri_sayisi) || 0;
       const randevuSayisi = Number(item.randevu_sayisi) || 0;
       const ortGelir = Number(item.ort_gelir) || 0;
       const rakipSayisi = Number(item.rakip_sayisi) || 0;
+      const normalizeRakip = Number(item.normalize_rakip) || 0;
 
       // Normalize edilmiş değerler (0-1 arası)
       const musteriNorm = musteriSayisi / maxMusteri;
       const randevuNorm = randevuSayisi / maxRandevu;
       const gelirNorm = ortGelir / maxGelir;
-      const rakipNorm = rakipSayisi / maxRakip;
+      // Normalize edilmiş rakip sayısını normalize et (yüksek normalize rakip = düşük skor)
+      const normalizeRakipNorm = normalizeRakip / maxNormalizeRakip;
 
       // Ağırlıklı skor hesaplama
       // Pozitif etki: musteri (30%), randevu (30%), gelir (20%)
-      // Negatif etki: rakip (20%)
+      // Negatif etki: normalize edilmiş rakip (20%) - yüksek normalize rakip skoru düşürür
       const pozitifSkor = (musteriNorm * 0.30) + (randevuNorm * 0.30) + (gelirNorm * 0.20);
-      const negatifSkor = rakipNorm * 0.20;
+      const negatifSkor = normalizeRakipNorm * 0.20;
       
       // Final skor (0-100)
       const uygunlukSkoru = Math.round(Math.max(0, Math.min(100, (pozitifSkor - negatifSkor + 0.20) * 100)));
@@ -287,7 +317,7 @@ export const getIlceUygunlukSkoruYeniSube = async (req, res) => {
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
       JOIN hizmet h ON r.hizmet_id = h.hizmet_id
-      WHERE i.ilce_ad = 'Konak'
+      WHERE i.ilce_ad = 'Konak' AND m.is_test = 0
       GROUP BY h.hizmet_id, h.hizmet_ad, h.fiyat_araligi
       ORDER BY toplam_randevu DESC
     `);
@@ -316,7 +346,7 @@ export const getIlceUygunlukSkoruYeniSube = async (req, res) => {
         COUNT(DISTINCT r.randevu_id) AS randevu_sayisi,
         COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi
       FROM ilce i
-      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id
+      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id AND m.is_test = 0
       LEFT JOIN randevu r ON r.musteri_id = m.musteri_id
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
       WHERE i.ilce_ad != 'Konak'
@@ -333,7 +363,7 @@ export const getIlceUygunlukSkoruYeniSube = async (req, res) => {
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
       JOIN hizmet h ON r.hizmet_id = h.hizmet_id
-      WHERE i.ilce_ad != 'Konak'
+      WHERE i.ilce_ad != 'Konak' AND m.is_test = 0
       GROUP BY i.ilce_id, i.ilce_ad, h.hizmet_id, h.hizmet_ad
     `);
 
@@ -350,32 +380,58 @@ export const getIlceUygunlukSkoruYeniSube = async (req, res) => {
       }
     });
 
-    // 4. Normalize için max değerleri bul (Konak hariç)
+    // 4. Normalize edilmiş rakip sayılarını hesapla (Konak hariç)
     const nonKonakIlceler = ilceData.filter(d => d.ilce_ad !== 'Konak');
-    const maxRandevu = Math.max(...nonKonakIlceler.map(d => Number(d.randevu_sayisi) || 0), 1);
-    const maxGelir = Math.max(...nonKonakIlceler.map(d => Number(d.ort_gelir) || 0), 1);
-    const maxRakip = Math.max(...nonKonakIlceler.map(d => Number(d.rakip_sayisi) || 0), 1);
+    const nonKonakIlcelerWithNormalizeRakip = nonKonakIlceler.map(item => {
+      const ilceAd = item.ilce_ad || "";
+      const bilinenRakip = Number(item.rakip_sayisi) || 0;
+      
+      // Normalize edilmiş rakip sayısı (rekabet yoğunluğu)
+      let normalizeRakip = bilinenRakip;
+      if (ilceAd === 'Karşıyaka') {
+        normalizeRakip = bilinenRakip * 8;
+      } else if (ilceAd === 'Buca') {
+        normalizeRakip = bilinenRakip * 5;
+      } else if (ilceAd === 'Konak') {
+        normalizeRakip = bilinenRakip * 6;
+      } else {
+        normalizeRakip = bilinenRakip * 4;
+      }
+      
+      return {
+        ...item,
+        normalize_rakip: normalizeRakip
+      };
+    });
+
+    // 5. Normalize için max değerleri bul (Konak hariç)
+    const maxRandevu = Math.max(...nonKonakIlcelerWithNormalizeRakip.map(d => Number(d.randevu_sayisi) || 0), 1);
+    const maxGelir = Math.max(...nonKonakIlcelerWithNormalizeRakip.map(d => Number(d.ort_gelir) || 0), 1);
+    const maxNormalizeRakip = Math.max(...nonKonakIlcelerWithNormalizeRakip.map(d => Number(d.normalize_rakip) || 0), 1);
     const maxHizmetUyum = Math.max(...Object.values(ilceHizmetUyumMap), 1);
 
-    // 5. Skor hesapla
-    const result = nonKonakIlceler.map(item => {
+    // 6. Skor hesapla
+    const result = nonKonakIlcelerWithNormalizeRakip.map(item => {
       const ilceAd = item.ilce_ad || "Bilinmeyen İlçe";
       const randevuSayisi = Number(item.randevu_sayisi) || 0;
       const ortGelir = Number(item.ort_gelir) || 0;
       const rakipSayisi = Number(item.rakip_sayisi) || 0;
+      const normalizeRakip = Number(item.normalize_rakip) || 0;
       const hizmetUyumSayisi = ilceHizmetUyumMap[ilceAd] || 0;
 
       // Normalize edilmiş değerler (0-1 arası)
       const talepNorm = randevuSayisi / maxRandevu;
       const gelirNorm = ortGelir / maxGelir;
       const hizmetUyumNorm = hizmetUyumSayisi / maxHizmetUyum;
-      const rakipNorm = rakipSayisi / maxRakip;
+      // Normalize edilmiş rakip sayısını normalize et (yüksek normalize rakip = düşük skor)
+      const normalizeRakipNorm = normalizeRakip / maxNormalizeRakip;
 
       // Skor bileşenleri (toplam 100)
       const talepSkor = talepNorm * 30;        // 30 puan
       const gelirSkor = gelirNorm * 25;        // 25 puan
       const hizmetUyumSkor = hizmetUyumNorm * 25; // 25 puan
-      const rekabetSkor = (1 - rakipNorm) * 20;   // 20 puan (ters etki)
+      // Normalize edilmiş rakip skoru düşürücü faktör olarak kullan (yüksek normalize rakip = düşük rekabet skoru)
+      const rekabetSkor = (1 - normalizeRakipNorm) * 20;   // 20 puan (ters etki)
 
       // Final skor (0-100)
       const uygunlukSkoru = Math.round(
@@ -387,6 +443,7 @@ export const getIlceUygunlukSkoruYeniSube = async (req, res) => {
         randevu_sayisi: randevuSayisi,
         ortalama_gelir: ortGelir,
         rakip_sayisi: rakipSayisi,
+        normalize_rakip: normalizeRakip, // Normalize edilmiş rakip sayısı (risk hesaplaması için)
         hizmet_uyum_skoru: Math.round(hizmetUyumNorm * 25),
         uygunluk_skoru: uygunlukSkoru,
         skor_detay: {
@@ -428,7 +485,7 @@ export const getBolgeselHizmetTalep = async (req, res) => {
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
       JOIN hizmet h ON r.hizmet_id = h.hizmet_id
-      WHERE i.ilce_ad IS NOT NULL
+      WHERE i.ilce_ad IS NOT NULL AND m.is_test = 0
       GROUP BY i.ilce_id, i.ilce_ad, h.hizmet_id, h.hizmet_ad
       ORDER BY i.ilce_ad, randevu_sayisi DESC
     `);
@@ -480,6 +537,7 @@ export const getIlceRandevu = async (req, res) => {
       FROM randevu r
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
+      WHERE m.is_test = 0
       GROUP BY i.ilce_id, i.ilce_ad
       ORDER BY randevu_sayisi DESC
     `);
@@ -513,6 +571,7 @@ export const getIlceHizmetPerformans = async (req, res) => {
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
       JOIN hizmet h ON r.hizmet_id = h.hizmet_id
+      WHERE m.is_test = 0
       GROUP BY h.hizmet_id, h.hizmet_ad, i.ilce_id, i.ilce_ad, h.fiyat_araligi
       ORDER BY toplam_randevu DESC
     `);
@@ -632,6 +691,7 @@ export const getKonakKarsilastirma = async (req, res) => {
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
       JOIN hizmet h ON r.hizmet_id = h.hizmet_id
+      WHERE m.is_test = 0
       GROUP BY h.hizmet_id, h.hizmet_ad, h.fiyat_araligi, i.ilce_id, i.ilce_ad
       ORDER BY h.hizmet_ad, toplam_randevu DESC
     `);
@@ -706,6 +766,7 @@ export const getKampanyaKarsilastirma = async (req, res) => {
       FROM randevu r
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
+      WHERE m.is_test = 0
       GROUP BY i.ilce_id, i.ilce_ad
       ORDER BY (kampanyali_randevu + kampanyasiz_randevu) DESC
     `);
@@ -775,7 +836,16 @@ export const getIlceRakip = async (req, res) => {
     const [data] = await pool.execute(`
       SELECT 
         i.ilce_ad,
-        COUNT(ri.rakip_id) AS rakip_sayisi
+        COUNT(ri.rakip_id) AS bilinen_rakip,
+        COUNT(ri.rakip_id) AS rakip_sayisi,
+        ROUND(
+          CASE
+            WHEN i.ilce_ad = 'Karşıyaka' THEN COUNT(ri.rakip_id) * 8
+            WHEN i.ilce_ad = 'Buca' THEN COUNT(ri.rakip_id) * 5
+            WHEN i.ilce_ad = 'Konak' THEN COUNT(ri.rakip_id) * 6
+            ELSE COUNT(ri.rakip_id) * 4
+          END
+        ) AS normalize_rakip
       FROM ilce i
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
       GROUP BY i.ilce_id, i.ilce_ad
@@ -784,12 +854,53 @@ export const getIlceRakip = async (req, res) => {
 
     const result = data.map(item => ({
       ilce_ad: item.ilce_ad || "Bilinmeyen İlçe",
-      rakip_sayisi: Number(item.rakip_sayisi) || 0
+      bilinen_rakip: Number(item.bilinen_rakip) || 0,
+      rakip_sayisi: Number(item.rakip_sayisi) || 0,
+      normalize_rakip: Number(item.normalize_rakip) || 0
     }));
 
     res.json(result);
   } catch (err) {
     console.error("Error in getIlceRakip:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * İlçe Bazlı Normalize Edilmiş Rakip Sayısı
+ * GET /api/dss/ilce-rakip-normalize
+ * Returns: ilce_id, ilce_ad, bilinen_rakip, normalize_rakip
+ * Applies normalization multipliers: Karşıyaka (8x), Buca (5x), Konak (6x), others (4x)
+ */
+export const getIlceRakipNormalize = async (req, res) => {
+  try {
+    const [data] = await pool.execute(`
+      SELECT 
+        i.ilce_id,
+        i.ilce_ad,
+        COUNT(r.rakip_id) AS bilinen_rakip,
+        CASE
+          WHEN i.ilce_ad = 'Karşıyaka' THEN COUNT(r.rakip_id) * 8
+          WHEN i.ilce_ad = 'Buca' THEN COUNT(r.rakip_id) * 5
+          WHEN i.ilce_ad = 'Konak' THEN COUNT(r.rakip_id) * 6
+          ELSE COUNT(r.rakip_id) * 4
+        END AS normalize_rakip
+      FROM ilce i
+      LEFT JOIN rakip_isletme r ON r.ilce_id = i.ilce_id
+      GROUP BY i.ilce_id, i.ilce_ad
+      ORDER BY normalize_rakip DESC
+    `);
+
+    const result = data.map(item => ({
+      ilce_id: Number(item.ilce_id) || 0,
+      ilce_ad: item.ilce_ad || "Bilinmeyen İlçe",
+      bilinen_rakip: Number(item.bilinen_rakip) || 0,
+      normalize_rakip: Number(item.normalize_rakip) || 0
+    }));
+
+    res.json(result);
+  } catch (err) {
+    console.error("Error in getIlceRakipNormalize:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -850,7 +961,7 @@ export const getIlceBazliKampanyaKar = async (req, res) => {
       JOIN musteri m ON m.ilce_id = i.ilce_id
       JOIN randevu r ON r.musteri_id = m.musteri_id
       JOIN kampanya k ON r.kampanya_id = k.kampanya_id
-      WHERE r.kampanya_id IS NOT NULL
+      WHERE r.kampanya_id IS NOT NULL AND m.is_test = 0
       GROUP BY i.ilce_id, i.ilce_ad, k.kampanya_id, k.kampanya_ad
       ORDER BY i.ilce_ad, toplam_gelir DESC
     `);
@@ -882,7 +993,7 @@ export const getTalepRakipOrani = async (req, res) => {
         COUNT(DISTINCT r.randevu_id) AS randevu_sayisi,
         COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi
       FROM ilce i
-      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id
+      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id AND m.is_test = 0
       LEFT JOIN randevu r ON r.musteri_id = m.musteri_id
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
       GROUP BY i.ilce_id, i.ilce_ad
@@ -984,7 +1095,7 @@ export const getIlceUygunlukSkoruAnalizler = async (req, res) => {
         COUNT(DISTINCT r.randevu_id) AS randevu_sayisi,
         COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi
       FROM ilce i
-      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id
+      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id AND m.is_test = 0
       LEFT JOIN randevu r ON r.musteri_id = m.musteri_id
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
       WHERE i.ilce_ad != 'Konak'
@@ -995,18 +1106,46 @@ export const getIlceUygunlukSkoruAnalizler = async (req, res) => {
       return res.json([]);
     }
 
+    // Normalize edilmiş rakip sayılarını hesapla
+    const dataWithNormalizeRakip = data.map(item => {
+      const ilceAd = item.ilce_ad || "";
+      const bilinenRakip = Number(item.rakip_sayisi) || 0;
+      
+      // Normalize edilmiş rakip sayısı (rekabet yoğunluğu)
+      let normalizeRakip = bilinenRakip;
+      if (ilceAd === 'Karşıyaka') {
+        normalizeRakip = bilinenRakip * 8;
+      } else if (ilceAd === 'Buca') {
+        normalizeRakip = bilinenRakip * 5;
+      } else if (ilceAd === 'Konak') {
+        normalizeRakip = bilinenRakip * 6;
+      } else {
+        normalizeRakip = bilinenRakip * 4;
+      }
+      
+      return {
+        ...item,
+        normalize_rakip: normalizeRakip
+      };
+    });
+
     // Talep skoru için normalize (randevu sayısı → 0-100)
-    const randevuSayilari = data.map(d => Number(d.randevu_sayisi) || 0);
+    const randevuSayilari = dataWithNormalizeRakip.map(d => Number(d.randevu_sayisi) || 0);
     const maxRandevu = Math.max(...randevuSayilari, 1);
 
     // Gelir skoru için normalize (potansiyel_gelir → 0-100)
     const potansiyelGelirler = randevuSayilari.map(r => r * 1400);
     const maxGelir = Math.max(...potansiyelGelirler, 1);
 
+    // Normalize edilmiş rakip sayısı için max değer
+    const normalizeRakipSayilari = dataWithNormalizeRakip.map(d => Number(d.normalize_rakip) || 0);
+    const maxNormalizeRakip = Math.max(...normalizeRakipSayilari, 1);
+
     // Skorları hesapla - Veri yoksa bile skor üret
-    const result = data.map(item => {
+    const result = dataWithNormalizeRakip.map(item => {
       const randevuSayisi = Number(item.randevu_sayisi) || 0;
       const rakipSayisi = Number(item.rakip_sayisi) || 0;
+      const normalizeRakip = Number(item.normalize_rakip) || 0;
 
       // Talep skoru (0-100 normalize): (değer / max) * 100
       const talepSkoru = maxRandevu > 0 
@@ -1021,8 +1160,11 @@ export const getIlceUygunlukSkoruAnalizler = async (req, res) => {
         ? Math.round((potansiyelGelir / maxGelir) * 100)
         : 0;
 
-      // Rakip skoru (100 / (1 + rakip_sayisi))
-      const rakipSkoru = Math.round(100 / (1 + rakipSayisi));
+      // Normalize edilmiş rakip skoru (yüksek normalize rakip = düşük skor)
+      // Normalize edilmiş rakip sayısını normalize et (0-1 arası)
+      const normalizeRakipNorm = normalizeRakip / maxNormalizeRakip;
+      // Ters etki: yüksek normalize rakip = düşük rakip skoru
+      const rakipSkoru = Math.round((1 - normalizeRakipNorm) * 100);
 
       // Uygunluk skoru
       const uygunlukSkoru = Math.round(

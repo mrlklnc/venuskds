@@ -21,13 +21,16 @@ export const getDashboard = async (req, res) => {
     const [musteriResult] = await pool.execute(`
       SELECT COUNT(*) AS totalMusteri 
       FROM musteri
+      WHERE is_test = 0
     `);
     const totalMusteri = Number(musteriResult[0]?.totalMusteri) || 0;
 
     // 2. Toplam Randevu Sayısı
     const [randevuResult] = await pool.execute(`
       SELECT COUNT(*) AS totalRandevu 
-      FROM randevu
+      FROM randevu r
+      JOIN musteri m ON r.musteri_id = m.musteri_id
+      WHERE m.is_test = 0
     `);
     const totalRandevu = Number(randevuResult[0]?.totalRandevu) || 0;
 
@@ -58,8 +61,10 @@ export const getDashboard = async (req, res) => {
           0
         ) AS toplamGelir
       FROM randevu r
+      JOIN musteri m ON r.musteri_id = m.musteri_id
       LEFT JOIN hizmet h ON r.hizmet_id = h.hizmet_id
-      WHERE h.fiyat_araligi IS NOT NULL
+      WHERE m.is_test = 0
+        AND h.fiyat_araligi IS NOT NULL
         AND h.fiyat_araligi LIKE '%-%'
     `);
     const toplamGelir = Math.round(Number(gelirResult[0]?.toplamGelir) || 0);

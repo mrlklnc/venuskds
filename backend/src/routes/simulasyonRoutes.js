@@ -12,7 +12,16 @@ router.get("/ilce-rakip-analizi", async (req, res) => {
     const sql = `
       SELECT
         i.ilce_ad,
-        COUNT(r.rakip_id) AS rakip_sayisi
+        COUNT(r.rakip_id) AS bilinen_rakip,
+        COUNT(r.rakip_id) AS rakip_sayisi,
+        ROUND(
+          CASE
+            WHEN i.ilce_ad = 'Karşıyaka' THEN COUNT(r.rakip_id) * 8
+            WHEN i.ilce_ad = 'Buca' THEN COUNT(r.rakip_id) * 5
+            WHEN i.ilce_ad = 'Konak' THEN COUNT(r.rakip_id) * 6
+            ELSE COUNT(r.rakip_id) * 4
+          END
+        ) AS normalize_rakip
       FROM ilce i
       LEFT JOIN rakip_isletme r ON r.ilce_id = i.ilce_id
       GROUP BY i.ilce_id, i.ilce_ad
@@ -22,7 +31,9 @@ router.get("/ilce-rakip-analizi", async (req, res) => {
 
     const result = data.map(item => ({
       ilce_ad: item.ilce_ad || "Bilinmeyen İlçe",
-      rakip_sayisi: Number(item.rakip_sayisi) || 0
+      bilinen_rakip: Number(item.bilinen_rakip) || 0,
+      rakip_sayisi: Number(item.rakip_sayisi) || 0,
+      normalize_rakip: Number(item.normalize_rakip) || 0
     }));
 
     res.json(result);
@@ -65,7 +76,7 @@ router.get("/ilce-ozet", async (req, res) => {
       FROM randevu r
       JOIN musteri m ON r.musteri_id = m.musteri_id
       JOIN ilce i ON m.ilce_id = i.ilce_id
-      WHERE i.ilce_ad = ? AND r.tarih IS NOT NULL
+      WHERE i.ilce_ad = ? AND r.tarih IS NOT NULL AND m.is_test = 0
     `, [ilce]);
 
     const toplamRandevu = randevuData.length > 0 ? Number(randevuData[0].toplam_randevu) || 0 : 0;
@@ -192,7 +203,7 @@ router.get("/ilce", async (req, res) => {
         FROM randevu r
         JOIN musteri m ON r.musteri_id = m.musteri_id
         JOIN ilce i ON m.ilce_id = i.ilce_id
-        WHERE i.ilce_id = ? AND r.tarih IS NOT NULL
+        WHERE i.ilce_id = ? AND r.tarih IS NOT NULL AND m.is_test = 0
       `, [ilce_id]);
       
       const toplamRandevu = randevuData.length > 0 ? Number(randevuData[0].toplam_randevu) || 0 : 0;
@@ -214,7 +225,7 @@ router.get("/ilce", async (req, res) => {
         COUNT(DISTINCT r.randevu_id) AS randevu_sayisi,
         COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi
       FROM ilce i
-      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id
+      LEFT JOIN musteri m ON m.ilce_id = i.ilce_id AND m.is_test = 0
       LEFT JOIN randevu r ON r.musteri_id = m.musteri_id
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
       WHERE i.ilce_id = ?

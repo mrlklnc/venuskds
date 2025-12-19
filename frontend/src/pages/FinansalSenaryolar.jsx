@@ -220,38 +220,7 @@ export default function FinansalSenaryolar() {
             </div>
           </div>
 
-          {/* Ağırlıklı Ortalama Randevu (Hesaplanan Değer) */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Ağırlıklı Ortalama Randevu: ~{agirlikliOrtalamaRandevu.toFixed(2)}
-            </label>
-            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-              <p className="text-xs text-gray-600 mb-2">
-                (Bu değer müşteri segmentlerine göre hesaplanmıştır)
-              </p>
-              <div className="space-y-1 text-xs text-gray-600">
-                <div className="flex justify-between">
-                  <span>{musteriSegmentleri.tekSeans.aciklama}:</span>
-                  <span className="font-semibold">%{(musteriSegmentleri.tekSeans.oran * 100).toFixed(0)} → {musteriSegmentleri.tekSeans.randevu} randevu</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>{musteriSegmentleri.duzenli.aciklama}:</span>
-                  <span className="font-semibold">%{(musteriSegmentleri.duzenli.oran * 100).toFixed(0)} → {musteriSegmentleri.duzenli.randevu} randevu</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>{musteriSegmentleri.paketli.aciklama}:</span>
-                  <span className="font-semibold">%{(musteriSegmentleri.paketli.oran * 100).toFixed(0)} → {musteriSegmentleri.paketli.randevu} randevu</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>{musteriSegmentleri.sadik.aciklama}:</span>
-                  <span className="font-semibold">%{(musteriSegmentleri.sadik.oran * 100).toFixed(0)} → {musteriSegmentleri.sadik.randevu} randevu</span>
-                </div>
-              </div>
-            </div>
-            <p className="text-xs text-gray-500 mt-2 italic">
-              Finansal hesaplamalar tüm müşterilerin aynı sıklıkta gelmediği varsayımıyla, müşteri davranış segmentlerine göre yapılmaktadır.
-            </p>
-          </div>
+
         </div>
       </div>
 

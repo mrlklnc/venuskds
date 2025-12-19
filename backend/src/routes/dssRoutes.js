@@ -13,6 +13,7 @@ import {
   getKampanyaKarsilastirma,
   getAylikGelirTrendi,
   getIlceRakip,
+  getIlceRakipNormalize,
   getTalepRakipOrani,
   getEnKarliHizmetler,
   getKonakKarsilastirma,
@@ -106,6 +107,13 @@ router.get("/aylik-gelir-trendi", getAylikGelirTrendi);
  * Returns competitor count per district
  */
 router.get("/ilce-rakip", getIlceRakip);
+
+/**
+ * GET /api/dss/ilce-rakip-normalize
+ * Returns normalized competitor count per district with multipliers
+ * (Karşıyaka: 8x, Buca: 5x, Konak: 6x, others: 4x)
+ */
+router.get("/ilce-rakip-normalize", getIlceRakipNormalize);
 
 /**
  * GET /api/dss/talep-rakip-orani

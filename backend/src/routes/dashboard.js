@@ -6,15 +6,15 @@ const router = express.Router();
 router.get("/summary", async (req, res) => {
   try {
     const [musteriRows] = await pool.query(
-      "SELECT COUNT(*) AS toplamMusteri FROM musteri"
+      "SELECT COUNT(*) AS toplamMusteri FROM musteri WHERE is_test = 0"
     );
 
     const [randevuRows] = await pool.query(
-      "SELECT COUNT(*) AS toplamRandevu FROM randevu"
+      "SELECT COUNT(*) AS toplamRandevu FROM randevu r JOIN musteri m ON r.musteri_id = m.musteri_id WHERE m.is_test = 0"
     );
 
     const [gelirRows] = await pool.query(
-      "SELECT IFNULL(SUM(ucret), 0) AS toplamGelir FROM randevu"
+      "SELECT IFNULL(SUM(ucret), 0) AS toplamGelir FROM randevu r JOIN musteri m ON r.musteri_id = m.musteri_id WHERE m.is_test = 0"
     );
 
     res.json({

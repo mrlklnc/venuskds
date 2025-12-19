@@ -8,7 +8,6 @@ import MusteriAnaliziTab from '../components/analizler/MusteriAnaliziTab';
 import HizmetPerformansiTab from '../components/analizler/HizmetPerformansiTab';
 import KampanyaStratejiTab from '../components/analizler/KampanyaStratejiTab';
 import RakipRiskTab from '../components/analizler/RakipRiskTab';
-import IlceUygunlukSkoruBölüm from '../components/analizler/IlceUygunlukSkoruBölüm';
 import { Users, Sparkles, Target, Building2 } from 'lucide-react';
 
 export default function Analizler() {
@@ -117,11 +116,6 @@ export default function Analizler() {
             renderTabContent()
           )}
         </div>
-      </div>
-
-      {/* İlçe Uygunluk Skoru Bölümü */}
-      <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 md:p-6">
-        <IlceUygunlukSkoruBölüm />
       </div>
     </div>
   );

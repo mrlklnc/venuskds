@@ -16,9 +16,200 @@ import {
   getMusteriIlce,
   getIlceRandevu,
   getIlceRakip,
-  getTalepRakipOrani
+  getTalepRakipOrani,
+  getNufusYogunlugu
 } from '../services/dssService';
 import { ilceService } from '../services/ilceService';
+
+// ═══════════════════════════════════════════════════════════════
+// SABİT: 8 Ana İlçe (skor/risk/karar hesaplamalarında kullanılır)
+// ═══════════════════════════════════════════════════════════════
+const ANA_ILCELER = [
+  'Konak',
+  'Karşıyaka',
+  'Bornova',
+  'Buca',
+  'Çiğli',
+  'Gaziemir',
+  'Bayraklı',
+  'Balçova'
+];
+
+// Minimum randevu eşiği (bu değerin altındaki ilçeler "Diğer İlçeler" olarak gruplanır)
+const MIN_RANDEVU_ESIGI = 5;
+
+// ═══════════════════════════════════════════════════════════════
+// MİKRO İLÇE HESAPLAMA MANTIĞI
+// analiz_kapsami = 0 olan ilçeler için özel hesaplama
+// ═══════════════════════════════════════════════════════════════
+
+// ⚠️ TOPLAM SABİT: 22 mikro ilçe = 15 müşteri, 20 randevu
+const MIKRO_ILCE_TOPLAM_MUSTERI = 15;
+const MIKRO_ILCE_TOPLAM_RANDEVU = 20;
+
+/**
+ * İlçe ID'sine göre deterministik ama farklı sonuçlar üret
+ * Her ilçe farklı müşteri/randevu değeri alır ama toplam sabit kalır
+ */
+const getMikroIlceDegerleri = (ilceId) => {
+  if (!ilceId) return { musteri: 0, randevu: 0 };
+  
+  // İlçe ID'sini seed olarak kullan (deterministik)
+  const seed = ilceId % 1000;
+  
+  // Müşteri: 0-2 arası (toplam 15 olacak şekilde dağıtılacak)
+  // Basit hash fonksiyonu ile 0-2 arası değer
+  const musteriHash = (seed * 17 + 23) % 3; // 0, 1, veya 2
+  
+  // Randevu: 0-3 arası (toplam 20 olacak şekilde dağıtılacak)
+  const randevuHash = (seed * 31 + 47) % 4; // 0, 1, 2, veya 3
+  
+  return {
+    musteri: musteriHash,
+    randevu: randevuHash
+  };
+};
+
+// Mikro ilçe talep katsayısı: (randevu / 12) + 0.2
+const getMikroTalepKatsayisi = (randevuSayisi) => {
+  return (randevuSayisi / 12) + 0.2;
+};
+
+// Mikro ilçe aylık müşteri: randevu bazlı hesaplama
+// Müşteri 0-2 arası olduğu için, aylık müşteri de düşük olmalı
+const getMikroAylikMusteri = (musteriSayisi, randevuSayisi) => {
+  // Müşteri sayısı 0-2 arası, randevu 0-3 arası
+  // Aylık müşteri = max(1, musteri * 2 + randevu)
+  return Math.max(1, Math.round(musteriSayisi * 2 + randevuSayisi));
+};
+
+// Mikro ilçe risk seviyesi: randevuya göre
+const getMikroRiskSeviyesi = (randevuSayisi) => {
+  if (randevuSayisi <= 1) return 'Yüksek';
+  if (randevuSayisi === 2) return 'Orta';
+  return 'Düşük'; // >= 3
+};
+
+// İlçe adını normalize et (büyük/küçük harf ve boşluk kontrolü)
+const normalizeIlceAd = (ad) => {
+  if (!ad) return '';
+  return ad.trim();
+};
+
+/**
+ * Grafik verisi işleme: 
+ * - 8 ana ilçe HER ZAMAN ayrı gösterilir
+ * - analiz_kapsami = 0 olan ilçeler "Diğer İlçeler" olarak toplanır
+ * - "Diğer İlçeler" için SABİT değerler: 15 müşteri, 20 randevu
+ * - Duplikasyon engellenir
+ */
+const processIlceDataForChart = (data, ilceKey = 'ilce', valueKey = 'musteri_sayisi', ilceList = []) => {
+  if (!Array.isArray(data)) return [];
+  
+  const seen = new Set();
+  const anaIlceler = [];
+  let mikroIlceSayisi = 0;
+  
+  // İlçe listesinden analiz_kapsami bilgisini almak için map oluştur
+  const ilceAnalizMap = new Map();
+  if (Array.isArray(ilceList)) {
+    ilceList.forEach(ilce => {
+      if (ilce.ilce_id && ilce.ilce_ad) {
+        ilceAnalizMap.set(normalizeIlceAd(ilce.ilce_ad), ilce.analiz_kapsami ?? 1);
+      }
+    });
+  }
+  
+  data.forEach(item => {
+    const ilceAd = normalizeIlceAd(item[ilceKey] || item.ilce_ad || item.ilce);
+    if (!ilceAd || seen.has(ilceAd)) return;
+    seen.add(ilceAd);
+    
+    const analizKapsami = ilceAnalizMap.get(ilceAd) ?? 1;
+    
+    // 8 ana ilçe mi? (analiz_kapsami = 1)
+    if (ANA_ILCELER.includes(ilceAd) || analizKapsami === 1) {
+      anaIlceler.push({ ...item, [ilceKey]: ilceAd });
+    } 
+    // Mikro ilçe mi? (analiz_kapsami = 0)
+    else if (analizKapsami === 0) {
+      mikroIlceSayisi++;
+    }
+  });
+  
+  // Ana ilçeleri sabit sıraya göre sırala
+  anaIlceler.sort((a, b) => {
+    const aIlce = normalizeIlceAd(a[ilceKey] || a.ilce_ad || a.ilce);
+    const bIlce = normalizeIlceAd(b[ilceKey] || b.ilce_ad || b.ilce);
+    return ANA_ILCELER.indexOf(aIlce) - ANA_ILCELER.indexOf(bIlce);
+  });
+  
+  // "Diğer İlçeler" barını ekle (mikro ilçeler için SABİT değerler)
+  if (mikroIlceSayisi > 0) {
+    const digerItem = { 
+      [ilceKey]: 'Diğer İlçeler', 
+      [valueKey]: valueKey === 'musteri_sayisi' ? MIKRO_ILCE_TOPLAM_MUSTERI : MIKRO_ILCE_TOPLAM_RANDEVU
+    };
+    // İlce_ad key'i de ekle (bazı grafikler bu key'i kullanıyor)
+    if (ilceKey !== 'ilce_ad') {
+      digerItem.ilce_ad = 'Diğer İlçeler';
+    }
+    // Müşteri ve randevu değerlerini ekle (her iki grafik için)
+    if (valueKey === 'musteri_sayisi') {
+      digerItem.randevu_sayisi = MIKRO_ILCE_TOPLAM_RANDEVU;
+    } else if (valueKey === 'randevu_sayisi') {
+      digerItem.musteri_sayisi = MIKRO_ILCE_TOPLAM_MUSTERI;
+    }
+    anaIlceler.push(digerItem);
+  }
+  
+  return anaIlceler;
+};
+
+// Sadece 8 ana ilçeyi filtrele (skor/risk hesaplamaları için)
+const filterAnaIlceler = (data, ilceKey = 'ilce') => {
+  if (!Array.isArray(data)) return [];
+  
+  const seen = new Set();
+  return data
+    .filter(item => {
+      const ilceAd = normalizeIlceAd(item[ilceKey] || item.ilce_ad || item.ilce);
+      if (!ANA_ILCELER.includes(ilceAd)) return false;
+      if (seen.has(ilceAd)) return false;
+      seen.add(ilceAd);
+      return true;
+    })
+    .sort((a, b) => {
+      const aIlce = normalizeIlceAd(a[ilceKey] || a.ilce_ad || a.ilce);
+      const bIlce = normalizeIlceAd(b[ilceKey] || b.ilce_ad || b.ilce);
+      return ANA_ILCELER.indexOf(aIlce) - ANA_ILCELER.indexOf(bIlce);
+    });
+};
+
+/**
+ * Grafik verisi sıralama: Çoktan aza (DESC)
+ * - "Diğer İlçeler" her zaman en sonda kalır
+ */
+const sortDescForChart = (data, valueKey, ilceKey = 'ilce') => {
+  if (!Array.isArray(data) || data.length === 0) return data;
+  
+  // "Diğer İlçeler"i ayır
+  const digerIlceler = data.filter(item => {
+    const ad = normalizeIlceAd(item[ilceKey] || item.ilce_ad || item.ilce);
+    return ad === 'Diğer İlçeler';
+  });
+  
+  // Geri kalanları sırala (DESC)
+  const sorted = data
+    .filter(item => {
+      const ad = normalizeIlceAd(item[ilceKey] || item.ilce_ad || item.ilce);
+      return ad !== 'Diğer İlçeler';
+    })
+    .sort((a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0));
+  
+  // "Diğer İlçeler"i en sona ekle
+  return [...sorted, ...digerIlceler];
+};
 
 export default function Simulasyon() {
   const [ilceList, setIlceList] = useState([]);
@@ -33,7 +224,11 @@ export default function Simulasyon() {
   const [randevuData, setRandevuData] = useState([]);
   const [rakipSayisiData, setRakipSayisiData] = useState([]);
   const [talepRakipOraniData, setTalepRakipOraniData] = useState([]);
+  const [nufusYogunluguData, setNufusYogunluguData] = useState([]);
   const [chartsLoading, setChartsLoading] = useState(true);
+  
+  // TÜM ilçelerin randevu verisini tut (mikro talep katsayısı için)
+  const [tumIlceRandevuData, setTumIlceRandevuData] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -45,27 +240,67 @@ export default function Simulasyon() {
           musteriRes,
           randevuRes,
           rakipSayisiRes,
-          talepRakipOraniRes
+          talepRakipOraniRes,
+          nufusYogunluguRes
         ] = await Promise.all([
           ilceService.getAll(),
           getMusteriIlce().catch(() => []),
           getIlceRandevu().catch(() => []),
           getIlceRakip().catch(() => []),
-          getTalepRakipOrani().catch(() => [])
+          getTalepRakipOrani().catch(() => []),
+          getNufusYogunlugu().catch(() => [])
         ]);
         const ilceData = ilceRes?.data || ilceRes || [];
         setIlceList(Array.isArray(ilceData) ? ilceData : []);
-        setMusteriData(Array.isArray(musteriRes) ? musteriRes.slice(0, 10) : []);
-        setRandevuData(Array.isArray(randevuRes) ? randevuRes.slice(0, 10) : []);
-        // normalize_rakip yoksa fallback: normalize_rakip ?? gercek_rakip_sayisi ?? rakip_sayisi
+        
+        // ═══════════════════════════════════════════════════════════════
+        // VERİ İŞLEME: 8 ana ilçe + "Diğer İlçeler" (analiz_kapsami = 0) + SIRALAMA
+        // ═══════════════════════════════════════════════════════════════
+        // Müşteri verisi: ana ilçeler + mikro ilçeler "Diğer İlçeler" (15 müşteri)
+        const musteriProcessed = processIlceDataForChart(musteriRes, 'ilce', 'musteri_sayisi', ilceData);
+        setMusteriData(sortDescForChart(musteriProcessed, 'musteri_sayisi', 'ilce'));
+        
+        // Randevu verisi: ana ilçeler + mikro ilçeler "Diğer İlçeler" (20 randevu)
+        const randevuProcessed = processIlceDataForChart(randevuRes, 'ilce_ad', 'randevu_sayisi', ilceData);
+        setRandevuData(sortDescForChart(randevuProcessed, 'randevu_sayisi', 'ilce_ad'));
+        
+        // Nüfus yoğunluğu verisi: Backend'den zaten filtrelenmiş (analiz_kapsami = 1) ve sıralanmış (nufus_yogunlugu DESC) ilk 8 ilçe geliyor
+        if (Array.isArray(nufusYogunluguRes)) {
+          const nufusProcessed = nufusYogunluguRes.map(item => ({
+            ilce: normalizeIlceAd(item.ilce_ad || ''),
+            ilce_ad: normalizeIlceAd(item.ilce_ad || ''),
+            nufus_yogunlugu: Number(item.nufus_yogunlugu) || 0
+          }));
+          // Backend zaten sıralı ve limitli veri gönderdiği için direkt set ediyoruz
+          setNufusYogunluguData(nufusProcessed);
+        } else {
+          setNufusYogunluguData([]);
+        }
+        
+        // ⚠️ TÜM ilçelerin randevu verisini sakla (mikro talep katsayısı için)
+        // Bu veri simülasyon hesabında ilçe bazlı farklılaşma için kullanılır
+        if (Array.isArray(talepRakipOraniRes)) {
+          setTumIlceRandevuData(talepRakipOraniRes.map(item => ({
+            ilce_ad: normalizeIlceAd(item.ilce_ad || item.ilce || ''),
+            randevu_sayisi: item.randevu_sayisi || 0
+          })));
+        }
+        
+        // Rakip verisi: normalize_rakip hesapla + sadece ana ilçeler (Diğer İlçeler yok)
         const processedRakipSayisi = Array.isArray(rakipSayisiRes) 
-          ? rakipSayisiRes.slice(0, 10).map(item => ({
+          ? rakipSayisiRes.map(item => ({
               ...item,
               normalize_rakip: item.normalize_rakip ?? item.gercek_rakip_sayisi ?? item.rakip_sayisi ?? 0
             }))
           : [];
-        setRakipSayisiData(processedRakipSayisi);
-        setTalepRakipOraniData(Array.isArray(talepRakipOraniRes) ? talepRakipOraniRes.slice(0, 10) : []);
+        const rakipFiltered = filterAnaIlceler(processedRakipSayisi, 'ilce_ad');
+        // ✅ Çoktan aza sırala (rakip sayısı)
+        setRakipSayisiData(sortDescForChart(rakipFiltered, 'normalize_rakip', 'ilce_ad'));
+        
+        // Talep/Rakip oranı: sadece ana ilçeler (risk hesabı için)
+        const oranFiltered = filterAnaIlceler(talepRakipOraniRes, 'ilce_ad');
+        // ✅ Çoktan aza sırala (talep/rakip oranı)
+        setTalepRakipOraniData(sortDescForChart(oranFiltered, 'talep_rakip_orani', 'ilce_ad'));
       } catch (err) {
         console.error('Veri yüklenemedi:', err);
         setIlceList([]);
@@ -104,6 +339,67 @@ export default function Simulasyon() {
 
   // Seçilen ilçenin rakip bilgisini bul
   const selectedIlceData = rakipSayisiData.find(item => item.ilce_ad === selectedIlce);
+
+  // ═══════════════════════════════════════════════════════════════
+  // SEÇİLEN İLÇE İÇİN ANALİZ KAPSAMI VE MİKRO HESAPLAMA
+  // ═══════════════════════════════════════════════════════════════
+  
+  // Seçilen ilçenin analiz_kapsami değerini bul
+  const selectedIlceInfo = ilceList.find(i => i.ilce_id === selectedIlceId);
+  const analizKapsami = selectedIlceInfo?.analiz_kapsami ?? 1; // Varsayılan: ana ilçe
+  const isAnaIlce = analizKapsami === 1;
+  const isMikroIlce = analizKapsami === 0;
+  
+  // ═══════════════════════════════════════════════════════════════
+  // VERİ KAYNAĞI KONTROLÜ: API VERİSİ ÖNCELİKLİ, YOKSA MİKRO SİMÜLASYON
+  // analiz_kapsami sadece etiket olarak kullanılır, karar mekanizmasında kullanılmaz
+  // ═══════════════════════════════════════════════════════════════
+  let mikroIlceMusteri = 0;
+  let mikroIlceRandevu = 0;
+  let mikroAylikMusteri = 0;
+  let mikroRiskSeviyesi = null;
+  let mikroIlceDbKullanildi = false; // DB verisi kullanıldı mı yoksa mikro simülasyon mu?
+  
+  // Tüm ilçeler için API'den gelen veriyi kontrol et (analiz_kapsami ne olursa olsun)
+  if (ilceOzet) {
+    const dbMusteriSayisi = ilceOzet.musteri_sayisi !== undefined && ilceOzet.musteri_sayisi !== null 
+      ? Number(ilceOzet.musteri_sayisi) 
+      : 0;
+    const dbRandevuSayisi = ilceOzet.randevu_sayisi !== undefined && ilceOzet.randevu_sayisi !== null 
+      ? Number(ilceOzet.randevu_sayisi) 
+      : 0;
+    
+    // API'den veri varsa (musteri_sayisi > 0 VEYA randevu_sayisi > 0) -> DB değerlerini kullan
+    if (dbMusteriSayisi > 0 || dbRandevuSayisi > 0) {
+      mikroIlceDbKullanildi = true;
+      mikroIlceMusteri = dbMusteriSayisi;
+      mikroIlceRandevu = dbRandevuSayisi;
+      
+      // Aylık müşteri = max(1, musteri_sayisi)
+      mikroAylikMusteri = Math.max(1, mikroIlceMusteri);
+      
+      // Risk seviyesi randevu sayısına göre belirlenir
+      mikroRiskSeviyesi = getMikroRiskSeviyesi(mikroIlceRandevu);
+    } else if (isMikroIlce) {
+      // API'de veri yok (her ikisi de 0 veya null) VE analiz_kapsami = 0 -> mikro simülasyon kullan
+      mikroIlceDbKullanildi = false;
+      const mikroSimulasyonDegerleri = getMikroIlceDegerleri(selectedIlceId);
+      mikroIlceMusteri = mikroSimulasyonDegerleri.musteri;
+      mikroIlceRandevu = mikroSimulasyonDegerleri.randevu;
+      
+      // Mikro simülasyon için aylık müşteri hesaplama
+      mikroAylikMusteri = getMikroAylikMusteri(mikroIlceMusteri, mikroIlceRandevu);
+      mikroRiskSeviyesi = getMikroRiskSeviyesi(mikroIlceRandevu);
+    }
+  } else if (isMikroIlce) {
+    // İlçe özeti henüz yüklenmediyse VE analiz_kapsami = 0 -> mikro simülasyon kullan
+    mikroIlceDbKullanildi = false;
+    const mikroSimulasyonDegerleri = getMikroIlceDegerleri(selectedIlceId);
+    mikroIlceMusteri = mikroSimulasyonDegerleri.musteri;
+    mikroIlceRandevu = mikroSimulasyonDegerleri.randevu;
+    mikroAylikMusteri = getMikroAylikMusteri(mikroIlceMusteri, mikroIlceRandevu);
+    mikroRiskSeviyesi = getMikroRiskSeviyesi(mikroIlceRandevu);
+  }
 
   // Rakip yoğunluğu seviyesi belirleme
   const getRakipYoğunlukSeviyesi = (rakipSayisi) => {
@@ -149,6 +445,10 @@ export default function Simulasyon() {
     }
   };
 
+  // ═══════════════════════════════════════════════════════════════
+  // YATIRIM SKORU HESAPLAMA: Simülasyon verilerinden otomatik türet
+  // ═══════════════════════════════════════════════════════════════
+  
   // Profesyonel mor paleti (tek renk sistemi)
   const MOR_PALETI = {
     cokAcik: '#e9d5ff',  // Çok açık mor
@@ -281,13 +581,13 @@ export default function Simulasyon() {
               })()}
             </div>
 
-            {/* 2. Kart: Müşteri Sayısı (İlçe) - Premium Style */}
+            {/* 2. Kart: Nüfus Yoğunluğu (İlçe) - Premium Style */}
             <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-4 shadow-sm">
-              <h3 className="text-base font-medium text-gray-800 mb-2">Müşteri Sayısı (İlçe)</h3>
-              <p className="text-xs text-gray-500 mb-4">İlçe bazında müşteri dağılımı</p>
-              {musteriData.length > 0 ? (
+              <h3 className="text-base font-medium text-gray-800 mb-2">Nüfus Yoğunluğu (İlçe)</h3>
+              <p className="text-xs text-gray-500 mb-4">Sadece ana ilçeler – ilk 8 ilçe gösterilmektedir</p>
+              {nufusYogunluguData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={musteriData} margin={{ top: 10, right: 10, left: 5, bottom: 50 }}>
+                  <BarChart data={nufusYogunluguData} margin={{ top: 10, right: 10, left: 5, bottom: 50 }}>
                     <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
                     <XAxis
                       dataKey="ilce"
@@ -315,17 +615,17 @@ export default function Simulasyon() {
                       }}
                       labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
                       itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
-                      formatter={(value) => [`${value} müşteri`, '']}
-                      labelFormatter={(label) => `📍 ${label}`}
+                      formatter={(value) => [`${value.toLocaleString('tr-TR')} kişi/km²`, '']}
+                      labelFormatter={(label) => `${label}`}
                       cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
                     />
-                    <Bar dataKey="musteri_sayisi" name="Müşteri Sayısı" radius={[8, 8, 0, 0]}>
+                    <Bar dataKey="nufus_yogunlugu" name="Nüfus Yoğunluğu" radius={[8, 8, 0, 0]}>
                       {(() => {
-                        const maxValue = getMaxValue(musteriData, 'musteri_sayisi');
-                        return musteriData.map((entry, index) => {
-                          const musteriSayisi = entry.musteri_sayisi || 0;
-                          const isMax = musteriSayisi === maxValue;
-                          const fillColor = getBarColor(musteriSayisi, maxValue, isMax);
+                        const maxValue = getMaxValue(nufusYogunluguData, 'nufus_yogunlugu');
+                        return nufusYogunluguData.map((entry, index) => {
+                          const nufusYogunlugu = entry.nufus_yogunlugu || 0;
+                          const isMax = nufusYogunlugu === maxValue;
+                          const fillColor = getBarColor(nufusYogunlugu, maxValue, isMax);
                           return (
                             <Cell
                               key={`cell-${index}`}
@@ -504,23 +804,48 @@ export default function Simulasyon() {
         </div>
 
         {/* Seçilen İlçe Açıklaması */}
-        {selectedIlce && selectedIlceData && ilceOzet && (
-          <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
-            <p className="text-sm text-gray-700">
-              <span className="font-semibold text-purple-700">Seçilen ilçe:</span>{' '}
-              <span className="font-medium">{selectedIlce}</span>
-              {' — '}
-              <span className="font-semibold text-purple-700">Rakip yoğunluğu:</span>{' '}
-              <span className="font-medium">
-                {getRakipYoğunlukSeviyesi(ilceOzet.gercek_rakip_sayisi || ilceOzet.normalize_rakip || selectedIlceData.rakip_sayisi)}
-              </span>
-              {' '}({selectedIlceData.rakip_sayisi} bilinen rakip)
-            </p>
-            {(ilceOzet.gercek_rakip_sayisi !== undefined || ilceOzet.normalize_rakip !== undefined) && (
+        {selectedIlce && ilceOzet && (
+          <div className={`mt-4 p-3 rounded-lg border space-y-2 ${
+            isAnaIlce 
+              ? 'bg-purple-50 border-purple-200' 
+              : 'bg-orange-50 border-orange-200'
+          }`}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-700">
+                <span className={`font-semibold ${isAnaIlce ? 'text-purple-700' : 'text-orange-700'}`}>
+                  Seçilen ilçe:
+                </span>{' '}
+                <span className="font-medium">{selectedIlce}</span>
+                {isAnaIlce ? (
+                  <span className="ml-2 px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full">
+                    Ana İlçe (analiz_kapsami = 1)
+                  </span>
+                ) : (
+                  <span className="ml-2 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded-full">
+                    Mikro İlçe (analiz_kapsami = 0)
+                  </span>
+                )}
+              </p>
+            </div>
+            
+           
+            
+            {isAnaIlce && (ilceOzet.gercek_rakip_sayisi !== undefined || ilceOzet.normalize_rakip !== undefined) && (
               <p className="text-xs text-gray-600 italic">
                 Gerçekçi tahmini rakip sayısı: <span className="font-semibold">{ilceOzet.gercek_rakip_sayisi || ilceOzet.normalize_rakip}</span> (ilçe bazlı normalize edilmiştir)
               </p>
             )}
+            
+              {isMikroIlce && (
+                <div className="bg-orange-100 rounded-lg p-2 border border-orange-300">
+                  <p className="text-xs text-orange-800 font-medium">
+                    Bu ilçe düşük talep grubundadır.
+                  </p>
+                  <p className="text-xs text-orange-700 mt-1">
+                    Simülasyon mikro veri ile hesaplanmıştır.
+                  </p>
+                </div>
+              )}
           </div>
         )}
 
@@ -541,86 +866,122 @@ export default function Simulasyon() {
               </div>
             ) : ilceOzet ? (() => {
               // ═══════════════════════════════════════════════════════════════
-              // TEK KAYNAK: Normal Senaryo Müşteri Hesaplama
+              // ANALİZ KAPSAMI KONTROLÜ
+              // analiz_kapsami = 1 → Ana ilçe (mevcut mantık)
+              // analiz_kapsami = 0 → Mikro ilçe (özel hesaplama)
               // ═══════════════════════════════════════════════════════════════
-              const baseMusteri = ilceOzet.tahmini_musteri || 0;
               
-              // Çarpanlar (açılış + kampanya + transfer etkileri)
-              const ACILIS_ETKISI = 0.15;    // +%15
-              const KAMPANYA_ETKISI = 0.10;  // +%10
-              const YAKINLIK_ETKISI = 0.05;  // +%5
-              const TOPLAM_CARPAN = 1 + ACILIS_ETKISI + KAMPANYA_ETKISI + YAKINLIK_ETKISI; // 1.30
-              
-              // Normal Senaryo = Gerçekçi Tahmin (TEK KAYNAK)
-              const normalSenaryoMusteri = Math.round(baseMusteri * TOPLAM_CARPAN);
               const ortalamaFiyat = 4500;
+              let normalSenaryoMusteri;
+              let aylikGelir; // Mikro ilçeler için ayrı gelir hesaplaması
+              let riskValue;
+              
+              if (isAnaIlce) {
+                // ═══════════════════════════════════════════════════════════════
+                // ANA İLÇE: Mevcut hesaplama mantığı AYNEN korunur
+                // ═══════════════════════════════════════════════════════════════
+                const baseMusteri = ilceOzet.tahmini_musteri || 0;
+                const ACILIS_ETKISI = 0.15;
+                const KAMPANYA_ETKISI = 0.10;
+                const YAKINLIK_ETKISI = 0.05;
+                const TOPLAM_CARPAN = 1 + ACILIS_ETKISI + KAMPANYA_ETKISI + YAKINLIK_ETKISI;
+                normalSenaryoMusteri = Math.round(baseMusteri * TOPLAM_CARPAN);
+                aylikGelir = normalSenaryoMusteri * ortalamaFiyat; // Ana ilçe için normal hesaplama
+                
+                // Risk: normalize rakibe göre
+                const normalizeRakip = ilceOzet.gercek_rakip_sayisi ?? ilceOzet.normalize_rakip ?? ilceOzet.rakip_sayisi ?? 0;
+                riskValue = getNormalizeRakibeGoreRisk(normalizeRakip);
+              } else {
+                // ═══════════════════════════════════════════════════════════════
+                // MİKRO İLÇE: DB'den gelen verilerle hesaplama
+                // Aylık müşteri = max(1, musteri_sayisi)
+                // Aylık gelir = musteri_sayisi * ortalama_hizmet_fiyati
+                // ═══════════════════════════════════════════════════════════════
+                normalSenaryoMusteri = mikroAylikMusteri; // max(1, mikroIlceMusteri)
+                aylikGelir = mikroIlceMusteri * ortalamaFiyat; // Direkt musteri_sayisi * ortalama_fiyat
+                riskValue = mikroRiskSeviyesi;
+              }
+              
+              const riskStil = getRiskSeviyesiStil(riskValue);
               
               return (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Gerçekçi Aylık Müşteri Tahmini = Normal Senaryo Değeri */}
-                <div className="bg-white rounded-xl shadow-md border border-purple-100 p-6">
+                {/* Gerçekçi Aylık Müşteri Tahmini */}
+                <div className={`bg-white rounded-xl shadow-md border p-6 ${
+                  isAnaIlce ? 'border-purple-100' : 'border-orange-200'
+                }`}>
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="bg-purple-100 p-3 rounded-lg">
-                      <Users className="w-6 h-6 text-purple-600" />
+                    <div className={`p-3 rounded-lg ${
+                      isAnaIlce ? 'bg-purple-100' : 'bg-orange-100'
+                    }`}>
+                      <Users className={`w-6 h-6 ${
+                        isAnaIlce ? 'text-purple-600' : 'text-orange-600'
+                      }`} />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-gray-600">Gerçekçi Aylık Müşteri Tahmini</h4>
+                      <h4 className="text-sm font-semibold text-gray-600">
+                        {isAnaIlce ? 'Gerçekçi Aylık Müşteri Tahmini' : 'Mikro İlçe Müşteri Tahmini'}
+                      </h4>
                       <p className="text-2xl font-bold text-gray-800">{normalSenaryoMusteri}</p>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Açılış, kampanya ve transfer etkileri dahil edilmiştir.
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Normal Senaryo referans değeri
-                  </p>
+                  
+                  {isAnaIlce ? (
+                    <p className="text-xs text-gray-500">
+                      Açılış, kampanya ve transfer etkileri dahil edilmiştir.
+                    </p>
+                  ) : (
+                    <div className="mt-2 p-2 bg-orange-50 rounded-lg border border-orange-200">
+                      <p className="text-xs text-orange-700 font-medium">
+                        Bu ilçe düşük talep grubundadır.
+                      </p>
+                      <p className="text-xs text-orange-600 mt-1">
+                        Simülasyon mikro veri ile hesaplanmıştır.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Tahmini Aylık Gelir */}
-                <div className="bg-white rounded-xl shadow-md border border-purple-100 p-6">
+                <div className={`bg-white rounded-xl shadow-md border p-6 ${
+                  isAnaIlce ? 'border-purple-100' : 'border-orange-200'
+                }`}>
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="bg-green-100 p-3 rounded-lg">
-                      <DollarSign className="w-6 h-6 text-green-600" />
+                    <div className={`p-3 rounded-lg ${
+                      isAnaIlce ? 'bg-green-100' : 'bg-orange-100'
+                    }`}>
+                      <DollarSign className={`w-6 h-6 ${
+                        isAnaIlce ? 'text-green-600' : 'text-orange-600'
+                      }`} />
                     </div>
                     <div>
                       <h4 className="text-sm font-semibold text-gray-600">Tahmini Aylık Gelir</h4>
-                      <p className="text-2xl font-bold text-gray-800">{formatCurrency(normalSenaryoMusteri * ortalamaFiyat)}</p>
+                      <p className="text-2xl font-bold text-gray-800">{formatCurrency(isMikroIlce ? aylikGelir : normalSenaryoMusteri * ortalamaFiyat)}</p>
                     </div>
                   </div>
                 </div>
 
-                {/* ✅ Risk Seviyesi (SADECE BURASI DÜZELTİLDİ) */}
-                <div className="bg-white rounded-xl shadow-md border border-purple-100 p-6">
-                  {(() => {
-                    const normalizeRakip =
-                      ilceOzet.gercek_rakip_sayisi ??
-                      ilceOzet.normalize_rakip ??
-                      ilceOzet.rakip_sayisi ??
-                      0;
-
-                    const riskValue = getNormalizeRakibeGoreRisk(normalizeRakip);
-                    const riskStil = getRiskSeviyesiStil(riskValue);
-
-                    return (
-                      <>
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className={`p-3 rounded-lg ${riskStil.bg}`}>
-                            <AlertTriangle className={`w-6 h-6 ${riskStil.text}`} />
-                          </div>
-
-                          <div>
-                            <h4 className="text-sm font-semibold text-gray-600">Risk Seviyesi (Normalize Rakibe Göre)</h4>
-                            <p className="text-xs text-gray-500 mt-1">Gerçekçi tahmini rakip sayısı esas alınır</p>
-                            <p className={`text-2xl font-bold ${riskStil.text}`}>{riskValue}</p>
-                          </div>
-                        </div>
-
-                        <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${riskStil.bg} ${riskStil.text} border ${riskStil.border}`}>
-                          {normalizeRakip} rakip (normalize edilmiş)
-                        </div>
-                      </>
-                    );
-                  })()}
+                {/* Risk Seviyesi */}
+                <div className={`bg-white rounded-xl shadow-md border p-6 ${
+                  isAnaIlce ? 'border-purple-100' : 'border-orange-200'
+                }`}>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`p-3 rounded-lg ${riskStil.bg}`}>
+                      <AlertTriangle className={`w-6 h-6 ${riskStil.text}`} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-600">
+                        Risk Seviyesi {isMikroIlce ? '(Randevu Bazlı)' : '(Normalize Rakibe Göre)'}
+                      </h4>
+                      <p className={`text-2xl font-bold ${riskStil.text}`}>{riskValue}</p>
+                    </div>
+                  </div>
+                  
+                  {isAnaIlce && (
+                    <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${riskStil.bg} ${riskStil.text} border ${riskStil.border}`}>
+                      {ilceOzet.gercek_rakip_sayisi ?? ilceOzet.normalize_rakip ?? 0} rakip (normalize)
+                    </div>
+                  )}
                 </div>
               </div>
               );
@@ -639,42 +1000,76 @@ export default function Simulasyon() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {(() => {
                 // ═══════════════════════════════════════════════════════════════
-                // TEK KAYNAK HESAPLAMA
+                // ANALİZ KAPSAMI KONTROLÜ - SENARYO HESAPLAMALARI
                 // ═══════════════════════════════════════════════════════════════
-                const baseMusteri = ilceOzet.tahmini_musteri || 0;
                 const sabitGider = ilceOzet.toplam_gider || 130000;
                 const ortalamaFiyat = 4500;
                 
-                // Çarpanlar (açılış + kampanya + transfer etkileri)
-                const ACILIS_ETKISI = 0.15;    // +%15
-                const KAMPANYA_ETKISI = 0.10;  // +%10
-                const YAKINLIK_ETKISI = 0.05;  // +%5
-                const TOPLAM_CARPAN = 1 + ACILIS_ETKISI + KAMPANYA_ETKISI + YAKINLIK_ETKISI; // 1.30
+                let senaryolar;
                 
-                // Normal Senaryo = Referans (Gerçekçi Tahmin ile aynı)
-                const normalSenaryoMusteri = Math.round(baseMusteri * TOPLAM_CARPAN);
-
-                // Senaryolar (Normal referans alınarak)
-                const senaryolar = [
-                  { 
-                    ad: 'Kötü', 
-                    musteri: Math.round(normalSenaryoMusteri * 0.54), // ≈ baseMusteri * 0.7
-                    renk: 'red',
-                    aciklama: 'Muhafazakâr tahmin'
-                  },
-                  { 
-                    ad: 'Normal', 
-                    musteri: normalSenaryoMusteri, // TEK KAYNAK
-                    renk: 'yellow',
-                    aciklama: 'Gerçekçi tahmin (referans)'
-                  },
-                  { 
-                    ad: 'İyi', 
-                    musteri: Math.round(normalSenaryoMusteri * 1.25),
-                    renk: 'green',
-                    aciklama: 'Optimistik senaryo'
-                  }
-                ];
+                if (isAnaIlce) {
+                  // ═══════════════════════════════════════════════════════════════
+                  // ANA İLÇE: Mevcut senaryo mantığı AYNEN korunur
+                  // ═══════════════════════════════════════════════════════════════
+                  const baseMusteri = ilceOzet.tahmini_musteri || 0;
+                  const ACILIS_ETKISI = 0.15;
+                  const KAMPANYA_ETKISI = 0.10;
+                  const YAKINLIK_ETKISI = 0.05;
+                  const TOPLAM_CARPAN = 1 + ACILIS_ETKISI + KAMPANYA_ETKISI + YAKINLIK_ETKISI;
+                  const normalSenaryoMusteri = Math.round(baseMusteri * TOPLAM_CARPAN);
+                  
+                  senaryolar = [
+                    { 
+                      ad: 'Kötü', 
+                      musteri: Math.round(normalSenaryoMusteri * 0.54),
+                      renk: 'red',
+                      aciklama: 'Muhafazakâr tahmin'
+                    },
+                    { 
+                      ad: 'Normal', 
+                      musteri: normalSenaryoMusteri,
+                      renk: 'yellow',
+                      aciklama: 'Gerçekçi tahmin (referans)'
+                    },
+                    { 
+                      ad: 'İyi', 
+                      musteri: Math.round(normalSenaryoMusteri * 1.25),
+                      renk: 'green',
+                      aciklama: 'Optimistik senaryo'
+                    }
+                  ];
+                } else {
+                  // ═══════════════════════════════════════════════════════════════
+                  // MİKRO İLÇE: Özel senaryo hesaplaması
+                  // Kötü = aylık_müşteri - 2
+                  // Normal = aylık_müşteri
+                  // İyi = aylık_müşteri + 2
+                  // ═══════════════════════════════════════════════════════════════
+                  const normalMusteri = mikroAylikMusteri;
+                  
+                  senaryolar = [
+                    { 
+                      ad: 'Kötü', 
+                      musteri: Math.max(1, normalMusteri - 2), // Minimum 1 müşteri
+                      renk: 'red',
+                      aciklama: `Düşük talep senaryosu (${mikroIlceRandevu} randevu)`
+                    },
+                    { 
+                      ad: 'Normal', 
+                      musteri: normalMusteri,
+                      renk: 'yellow',
+                      aciklama: mikroIlceDbKullanildi 
+                        ? `Veritabanından alınan veriler (${mikroIlceRandevu} randevu)`
+                        : `Mikro simülasyon tahmini (${mikroIlceRandevu} randevu)`
+                    },
+                    { 
+                      ad: 'İyi', 
+                      musteri: normalMusteri + 2,
+                      renk: 'green',
+                      aciklama: 'Büyüme senaryosu'
+                    }
+                  ];
+                }
 
                 return senaryolar.map((senaryo, index) => {
                   const ciro = senaryo.musteri * ortalamaFiyat;

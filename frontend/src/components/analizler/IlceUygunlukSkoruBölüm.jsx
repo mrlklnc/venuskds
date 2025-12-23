@@ -23,8 +23,20 @@ export default function IlceUygunlukSkoruBölüm() {
     const fetchData = async () => {
       try {
         setLoading(true);
+        // CBS İlçe Özeti tablosunun TEK kaynağı: getIlceUygunlukSkoruAnalizler
         const analizlerRes = await getIlceUygunlukSkoruAnalizler().catch(() => []);
-        setChartData(Array.isArray(analizlerRes) ? analizlerRes : []);
+        // Sadece ana ilçeleri göster (mikro ilçeler için yatirim_skoru: null)
+        const filteredData = Array.isArray(analizlerRes) 
+          ? analizlerRes.filter(ilce => ilce.yatirim_skoru !== null && ilce.yatirim_skoru !== undefined && ilce.yatirim_skoru > 0)
+          : [];
+        // Grafik render edilmeden önce yatırım skoruna göre DESC sıralama (görsel sıralama)
+        const sortedData = [...filteredData].sort((a, b) => {
+          if (a.yatirim_skoru === null && b.yatirim_skoru === null) return 0;
+          if (a.yatirim_skoru === null) return 1;
+          if (b.yatirim_skoru === null) return -1;
+          return b.yatirim_skoru - a.yatirim_skoru; // DESC: yüksekten düşüğe
+        });
+        setChartData(sortedData);
       } catch (err) {
         console.error('İlçe uygunluk skoru yüklenemedi:', err);
       } finally {
@@ -157,9 +169,9 @@ export default function IlceUygunlukSkoruBölüm() {
                   labelStyle={{ color: '#374151', fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}
                   itemStyle={{ color: '#6b7280', fontSize: '12px' }}
                 />
-                <Bar dataKey="uygunluk_skoru" name="Uygunluk Skoru" radius={[6, 6, 0, 0]}>
+                <Bar dataKey="yatirim_skoru" name="Yatırım Skoru" radius={[6, 6, 0, 0]}>
                   {(() => {
-                    const maxScore = Math.max(...chartData.map(d => d.uygunluk_skoru), 0);
+                    const maxScore = Math.max(...chartData.map(d => d.yatirim_skoru), 0);
                     const MOR_PALETI = {
                       cokAcik: '#e9d5ff',
                       acik: '#c4b5fd',
@@ -169,8 +181,8 @@ export default function IlceUygunlukSkoruBölüm() {
                       cokKoyu: '#6d28d9'
                     };
                     return chartData.slice(0, 10).map((entry, index) => {
-                      const isHighest = entry.uygunluk_skoru === maxScore;
-                      const ratio = maxScore > 0 ? entry.uygunluk_skoru / maxScore : 0;
+                      const isHighest = entry.yatirim_skoru === maxScore;
+                      const ratio = maxScore > 0 ? entry.yatirim_skoru / maxScore : 0;
                       let fillColor;
                       if (isHighest) {
                         fillColor = MOR_PALETI.cokKoyu;
@@ -217,8 +229,8 @@ export default function IlceUygunlukSkoruBölüm() {
                   <p className="text-purple-200 text-xs mb-1">En Uygun İlçe</p>
                   <p className="font-bold text-white text-2xl mb-2">{chartData[0]?.ilce_ad}</p>
                   <div className="inline-flex items-center gap-2 bg-white/20 px-3 py-1.5 rounded-lg">
-                    <span className="text-purple-200 text-xs">Uygunluk Skoru</span>
-                    <span className="font-bold text-white text-lg">{chartData[0]?.uygunluk_skoru}/100</span>
+                    <span className="text-purple-200 text-xs">Yatırım Skoru</span>
+                    <span className="font-bold text-white text-lg">{chartData[0]?.yatirim_skoru || '—'}/100</span>
                   </div>
                 </div>
                 
@@ -226,26 +238,10 @@ export default function IlceUygunlukSkoruBölüm() {
                   <p className="text-white text-sm leading-relaxed">
                     {(() => {
                       const enUygun = chartData[0];
-                      if (!enUygun) return '';
+                      if (!enUygun || !enUygun.ilce_ad) return '';
                       
-                      let yorum = '';
-                      const talepYuksek = enUygun.talep_skoru >= 70;
-                      const rekabetDusuk = enUygun.rakip_skoru >= 70;
-                      const gelirYuksek = enUygun.gelir_skoru >= 70;
-                      
-                      if (talepYuksek && rekabetDusuk) {
-                        yorum = `Talep yoğunluğu ve düşük rekabet nedeniyle ${enUygun.ilce_ad} yeni şube açmak için en uygun ilçedir.`;
-                      } else if (talepYuksek) {
-                        yorum = `Yüksek talep seviyesi ile ${enUygun.ilce_ad} yeni şube açmak için uygun bir seçenektir.`;
-                      } else if (rekabetDusuk && gelirYuksek) {
-                        yorum = `Düşük rekabet ve yüksek gelir potansiyeli nedeniyle ${enUygun.ilce_ad} yeni şube için değerlendirilebilir.`;
-                      } else if (rekabetDusuk) {
-                        yorum = `Düşük rekabet seviyesi nedeniyle ${enUygun.ilce_ad} yeni şube açmak için uygun bir lokasyondur.`;
-                      } else {
-                        yorum = `${enUygun.ilce_ad} ilçesi, mevcut veriler ışığında yeni şube açmak için en uygun seçenektir.`;
-                      }
-                      
-                      return yorum;
+                      // CBS İlçe Özeti sıralamasına göre dinamik yorum
+                      return `${enUygun.ilce_ad} ilçesi, ${enUygun.yatirim_skoru} puan ile yatırım skoru sıralamasında en üst sırada yer almakta ve yeni şube açmak için en uygun lokasyondur.`;
                     })()}
                   </p>
                 </div>

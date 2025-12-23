@@ -5,6 +5,7 @@ import {
   BarChart3,
   Building2,
   Calculator,
+  Map,
   FileText,
   LogOut,
   Sparkles,
@@ -33,6 +34,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen }) {
     { path: '/analizler', label: 'Karar Destek Analizleri', icon: BarChart3 },
     { path: '/simulasyon', label: 'Şube Açma Simülasyonu', icon: Building2 },
     { path: '/finansal-senaryolar', label: 'Finansal Senaryolar', icon: Calculator },
+    { path: '/harita', label: 'Harita (CBS Analizi)', icon: Map },
     { path: '/karar-ozeti', label: 'Yönetici Karar Özeti', icon: FileText },
   ];
 

@@ -13,6 +13,59 @@ import { getIlceRakip, getTalepRakipOrani } from '../../services/dssService';
 import { MapPin, AlertTriangle, CheckCircle, TrendingUp } from 'lucide-react';
 import { GRID_STYLE, AXIS_STYLE, TOOLTIP_STYLE, getBarColor } from '../../styles/chartTheme';
 
+// ═══════════════════════════════════════════════════════════════
+// SABİT: 8 Ana İlçe (skor/risk hesaplamalarında kullanılır)
+// ═══════════════════════════════════════════════════════════════
+const ANA_ILCELER = [
+  'Konak',
+  'Karşıyaka',
+  'Bornova',
+  'Buca',
+  'Çiğli',
+  'Gaziemir',
+  'Bayraklı',
+  'Balçova'
+];
+
+// Sadece ana ilçeleri filtrele (risk/rakip hesaplamaları için)
+const filterAnaIlceler = (data, ilceKey = 'ilce_ad') => {
+  if (!Array.isArray(data)) return [];
+  
+  const seen = new Set();
+  return data.filter(item => {
+    const ilceAd = (item[ilceKey] || item.ilce || '').trim();
+    if (!ANA_ILCELER.includes(ilceAd)) return false;
+    if (seen.has(ilceAd)) return false;
+    seen.add(ilceAd);
+    return true;
+  });
+};
+
+/**
+ * Grafik verisi sıralama: Çoktan aza (DESC)
+ * - "Diğer İlçeler" her zaman en sonda kalır
+ */
+const sortDescForChart = (data, valueKey, ilceKey = 'ilce_ad') => {
+  if (!Array.isArray(data) || data.length === 0) return data;
+  
+  // "Diğer İlçeler"i ayır
+  const digerIlceler = data.filter(item => {
+    const ad = (item[ilceKey] || item.ilce || '').trim();
+    return ad === 'Diğer İlçeler';
+  });
+  
+  // Geri kalanları sırala (DESC)
+  const sorted = data
+    .filter(item => {
+      const ad = (item[ilceKey] || item.ilce || '').trim();
+      return ad !== 'Diğer İlçeler';
+    })
+    .sort((a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0));
+  
+  // "Diğer İlçeler"i en sona ekle
+  return [...sorted, ...digerIlceler];
+};
+
 export default function RakipRiskTab() {
   const [rakipData, setRakipData] = useState([]);
   const [oranData, setOranData] = useState([]);
@@ -27,14 +80,18 @@ export default function RakipRiskTab() {
           getTalepRakipOrani()
         ]);
         // Simulasyon sayfası ile aynı normalize işlemi (TEK KAYNAK)
+        // Sadece 8 ana ilçe (risk hesaplamaları için) + SIRALAMA (çoktan aza)
         const processedRakipData = Array.isArray(rakipRes) 
-          ? rakipRes.slice(0, 10).map(item => ({
+          ? rakipRes.map(item => ({
               ...item,
               normalize_rakip: item.normalize_rakip ?? item.gercek_rakip_sayisi ?? item.rakip_sayisi ?? 0
             }))
           : [];
-        setRakipData(processedRakipData);
-        setOranData(Array.isArray(oranRes) ? oranRes.slice(0, 10) : []);
+        const rakipFiltered = filterAnaIlceler(processedRakipData, 'ilce_ad');
+        setRakipData(sortDescForChart(rakipFiltered, 'normalize_rakip', 'ilce_ad'));
+        
+        const oranFiltered = filterAnaIlceler(oranRes, 'ilce_ad');
+        setOranData(sortDescForChart(oranFiltered, 'talep_rakip_orani', 'ilce_ad'));
       } catch (err) {
         console.error('Rakip verisi yüklenemedi:', err);
       } finally {

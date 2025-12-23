@@ -14,6 +14,96 @@ import { getMusteriIlce, getIlceRandevu } from '../../services/dssService';
 import { MapPin } from 'lucide-react';
 import { GRID_STYLE, AXIS_STYLE, TOOLTIP_STYLE, BAR_COLORS, getBarColor } from '../../styles/chartTheme';
 
+// ═══════════════════════════════════════════════════════════════
+// SABİT: 8 Ana İlçe
+// ═══════════════════════════════════════════════════════════════
+const ANA_ILCELER = [
+  'Konak',
+  'Karşıyaka',
+  'Bornova',
+  'Buca',
+  'Çiğli',
+  'Gaziemir',
+  'Bayraklı',
+  'Balçova'
+];
+
+// ⚠️ MİKRO İLÇE SABİT DEĞERLERİ: 22 mikro ilçe = 15 müşteri, 20 randevu
+const MIKRO_ILCE_TOPLAM_MUSTERI = 15;
+const MIKRO_ILCE_TOPLAM_RANDEVU = 20;
+
+/**
+ * Grafik verisi işleme: 
+ * - 8 ana ilçe HER ZAMAN ayrı gösterilir
+ * - analiz_kapsami = 0 olan ilçeler "Diğer İlçeler" olarak toplanır
+ * - "Diğer İlçeler" için SABİT değerler: 15 müşteri, 20 randevu
+ */
+const processIlceDataForChart = (data, ilceKey = 'ilce', valueKey = 'musteri_sayisi') => {
+  if (!Array.isArray(data)) return [];
+  
+  const seen = new Set();
+  const anaIlceler = [];
+  let mikroIlceSayisi = 0;
+  
+  data.forEach(item => {
+    const ilceAd = (item[ilceKey] || item.ilce_ad || item.ilce || '').trim();
+    if (!ilceAd || seen.has(ilceAd)) return;
+    seen.add(ilceAd);
+    
+    if (ANA_ILCELER.includes(ilceAd)) {
+      anaIlceler.push({ ...item, [ilceKey]: ilceAd });
+    } else {
+      // Mikro ilçe (analiz_kapsami = 0) - sayıyı artır
+      mikroIlceSayisi++;
+    }
+  });
+  
+  // "Diğer İlçeler" barını ekle (mikro ilçeler için SABİT değerler)
+  if (mikroIlceSayisi > 0) {
+    const digerItem = { 
+      [ilceKey]: 'Diğer İlçeler', 
+      [valueKey]: valueKey === 'musteri_sayisi' ? MIKRO_ILCE_TOPLAM_MUSTERI : MIKRO_ILCE_TOPLAM_RANDEVU
+    };
+    if (ilceKey !== 'ilce_ad') {
+      digerItem.ilce_ad = 'Diğer İlçeler';
+    }
+    // Her iki değeri de ekle
+    if (valueKey === 'musteri_sayisi') {
+      digerItem.randevu_sayisi = MIKRO_ILCE_TOPLAM_RANDEVU;
+    } else if (valueKey === 'randevu_sayisi') {
+      digerItem.musteri_sayisi = MIKRO_ILCE_TOPLAM_MUSTERI;
+    }
+    anaIlceler.push(digerItem);
+  }
+  
+  return anaIlceler;
+};
+
+/**
+ * Grafik verisi sıralama: Çoktan aza (DESC)
+ * - "Diğer İlçeler" her zaman en sonda kalır
+ */
+const sortDescForChart = (data, valueKey, ilceKey = 'ilce') => {
+  if (!Array.isArray(data) || data.length === 0) return data;
+  
+  // "Diğer İlçeler"i ayır
+  const digerIlceler = data.filter(item => {
+    const ad = (item[ilceKey] || item.ilce_ad || item.ilce || '').trim();
+    return ad === 'Diğer İlçeler';
+  });
+  
+  // Geri kalanları sırala (DESC)
+  const sorted = data
+    .filter(item => {
+      const ad = (item[ilceKey] || item.ilce_ad || item.ilce || '').trim();
+      return ad !== 'Diğer İlçeler';
+    })
+    .sort((a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0));
+  
+  // "Diğer İlçeler"i en sona ekle
+  return [...sorted, ...digerIlceler];
+};
+
 export default function MusteriAnaliziTab() {
   const [musteriData, setMusteriData] = useState([]);
   const [randevuData, setRandevuData] = useState([]);
@@ -27,8 +117,12 @@ export default function MusteriAnaliziTab() {
           getMusteriIlce(),
           getIlceRandevu()
         ]);
-        setMusteriData(Array.isArray(musteriRes) ? musteriRes.slice(0, 10) : []);
-        setRandevuData(Array.isArray(randevuRes) ? randevuRes.slice(0, 10) : []);
+        // 8 ana ilçe + "Diğer İlçeler" gruplaması + SIRALAMA (çoktan aza)
+        const musteriProcessed = processIlceDataForChart(musteriRes, 'ilce', 'musteri_sayisi');
+        setMusteriData(sortDescForChart(musteriProcessed, 'musteri_sayisi', 'ilce'));
+        
+        const randevuProcessed = processIlceDataForChart(randevuRes, 'ilce_ad', 'randevu_sayisi');
+        setRandevuData(sortDescForChart(randevuProcessed, 'randevu_sayisi', 'ilce_ad'));
       } catch (err) {
         console.error('Müşteri analizi verisi yüklenemedi:', err);
       } finally {

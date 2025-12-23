@@ -45,8 +45,21 @@ export default function HizmetPerformansiTab() {
           getEnKarliHizmetler(),
           getKonakKarsilastirma()
         ]);
-        setKarliHizmetler(Array.isArray(karliRes) ? karliRes : []);
-        setKonakKarsilastirma(Array.isArray(konakRes) ? konakRes : []);
+        // ✅ Çoktan aza sırala (toplam_gelir)
+        const karliSorted = Array.isArray(karliRes) 
+          ? [...karliRes].sort((a, b) => (Number(b.toplam_gelir) || 0) - (Number(a.toplam_gelir) || 0))
+          : [];
+        setKarliHizmetler(karliSorted);
+        
+        // ✅ Çoktan aza sırala (konak_gelir veya toplam)
+        const konakSorted = Array.isArray(konakRes)
+          ? [...konakRes].sort((a, b) => {
+              const aTotal = (Number(a.konak_gelir) || 0) + (Number(a.diger_ilceler_ortalama) || 0);
+              const bTotal = (Number(b.konak_gelir) || 0) + (Number(b.diger_ilceler_ortalama) || 0);
+              return bTotal - aTotal;
+            })
+          : [];
+        setKonakKarsilastirma(konakSorted);
       } catch (err) {
         console.error('Hizmet performans verisi yüklenemedi:', err);
       } finally {

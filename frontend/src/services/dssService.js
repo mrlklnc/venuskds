@@ -130,6 +130,12 @@ export const getIlceUygunlukSkoruAnalizler = async () => {
   return res.data;
 };
 
+// İlçe Skor Özet (Simülasyon sayfası için - Simülasyon verilerinden otomatik hesaplanan)
+export const getIlceSkorOzet = async () => {
+  const res = await api.get("/simulasyon/skor-ozet");
+  return res.data;
+};
+
 // Kampanyalar Arası Performans Karşılaştırması
 export const getKampanyalarArasiPerformans = async () => {
   const res = await api.get("/dss/kampanyalar-arasi-performans");
@@ -165,6 +171,12 @@ export const getIlceOzetById = async (ilceId) => {
   const res = await api.get("/simulasyon/ilce", {
     params: { ilce_id: ilceId }
   });
+  return res.data;
+};
+
+// Nüfus Yoğunluğu (Simülasyon sayfası için)
+export const getNufusYogunlugu = async () => {
+  const res = await api.get("/simulasyon/nufus-yogunlugu");
   return res.data;
 };
 

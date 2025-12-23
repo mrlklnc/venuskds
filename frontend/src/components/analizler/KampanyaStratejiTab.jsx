@@ -38,9 +38,29 @@ export default function KampanyaStratejiTab() {
           getKampanyalarArasiPerformans(),
           getIlceBazliKampanyaKar()
         ]);
-        setKarsilastirmaData(Array.isArray(karsilastirmaRes) ? karsilastirmaRes.slice(0, 10) : []);
+        // ✅ Çoktan aza sırala (toplam randevu: kampanyalı + kampanyasız)
+        const karsilastirmaSorted = Array.isArray(karsilastirmaRes)
+          ? [...karsilastirmaRes]
+              .map(item => ({
+                ...item,
+                toplam_randevu: (Number(item.kampanyali_randevu) || 0) + (Number(item.kampanyasiz_randevu) || 0)
+              }))
+              .sort((a, b) => (b.toplam_randevu || 0) - (a.toplam_randevu || 0))
+              .slice(0, 10)
+          : [];
+        setKarsilastirmaData(karsilastirmaSorted);
+        
         setGelirTrendiData(Array.isArray(gelirTrendiRes) ? gelirTrendiRes : []);
-        setKampanyaPerformansData(Array.isArray(performansRes) ? performansRes : []);
+        
+        // ✅ Çoktan aza sırala (performans_metriği - gelir/randevu)
+        const performansSorted = Array.isArray(performansRes)
+          ? [...performansRes].sort((a, b) => 
+              (Number(b.performans_metriği) || 0) - (Number(a.performans_metriği) || 0)
+            )
+          : [];
+        setKampanyaPerformansData(performansSorted);
+        
+        // İlçe bazlı kampanya kâr verisi (grafik içinde formatlanıp sıralanacak)
         setIlceKampanyaKarData(Array.isArray(ilceKarRes) ? ilceKarRes : []);
       } catch (err) {
         console.error('Kampanya verisi yüklenemedi:', err);
@@ -235,36 +255,6 @@ export default function KampanyaStratejiTab() {
         </div>
       </div>
 
-      {/* Konak Kampanya Özeti */}
-      {konakData && (
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl p-4 text-white">
-          <div className="flex items-center gap-2 mb-3">
-            <MapPin className="w-5 h-5" />
-            <span className="font-semibold">Konak - Kampanya Performansı</span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <p className="text-purple-200 text-xs">Kampanyalı Randevu</p>
-              <p className="text-2xl font-bold">{konakData.kampanyali_randevu}</p>
-            </div>
-            <div>
-              <p className="text-purple-200 text-xs">Kampanyasız Randevu</p>
-              <p className="text-2xl font-bold">{konakData.kampanyasiz_randevu}</p>
-            </div>
-            <div>
-              <p className="text-purple-200 text-xs">Kampanya Oranı</p>
-              <p className="text-2xl font-bold">%{konakKampanyaOrani}</p>
-            </div>
-            <div>
-              <p className="text-purple-200 text-xs">Toplam</p>
-              <p className="text-2xl font-bold">
-                {konakData.kampanyali_randevu + konakData.kampanyasiz_randevu}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Yeni Grafikler - Kampanyalar Arası Performans ve İlçe Bazlı Kâr */}
       {(kampanyaPerformansData.length > 0 || ilceKampanyaKarData.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 items-stretch">
@@ -400,7 +390,7 @@ export default function KampanyaStratejiTab() {
               return dataPoint;
             });
 
-            // Toplam kâra göre çoktan aza sırala
+            // ✅ Toplam kâra göre çoktan aza sırala (grafik içinde formatlanmış veri üzerinden)
             chartData.sort((a, b) => (b._toplamKar || 0) - (a._toplamKar || 0));
             
             // Geçici alanı kaldır

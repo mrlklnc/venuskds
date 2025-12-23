@@ -1,4 +1,9 @@
 import pool from '../lib/db.js';
+import { 
+  hesaplaNormalizeRakip, 
+  hesaplaRiskSeviyesiHarita, 
+  computeIlceUygunlukSkoru 
+} from '../utils/ilceSkorUtil.js';
 
 /**
  * Hizmet isimlerini normalize eden yardımcı fonksiyon
@@ -987,17 +992,22 @@ export const getIlceBazliKampanyaKar = async (req, res) => {
  */
 export const getTalepRakipOrani = async (req, res) => {
   try {
+    // ═══════════════════════════════════════════════════════════════
+    // HARİTA İÇİN: Tüm ilçeler döner (0 randevulu dahil)
+    // analiz_kapsami da eklendi
+    // ═══════════════════════════════════════════════════════════════
     const [data] = await pool.execute(`
       SELECT 
+        i.ilce_id,
         i.ilce_ad,
+        i.analiz_kapsami,
         COUNT(DISTINCT r.randevu_id) AS randevu_sayisi,
         COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi
       FROM ilce i
       LEFT JOIN musteri m ON m.ilce_id = i.ilce_id AND m.is_test = 0
       LEFT JOIN randevu r ON r.musteri_id = m.musteri_id
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
-      GROUP BY i.ilce_id, i.ilce_ad
-      HAVING randevu_sayisi > 0
+      GROUP BY i.ilce_id, i.ilce_ad, i.analiz_kapsami
       ORDER BY randevu_sayisi DESC
     `);
 
@@ -1007,7 +1017,9 @@ export const getTalepRakipOrani = async (req, res) => {
       const oran = Math.round((randevuSayisi / rakipSayisi) * 10) / 10;
       
       return {
+        ilce_id: item.ilce_id,
         ilce_ad: item.ilce_ad || "Bilinmeyen İlçe",
+        analiz_kapsami: Number(item.analiz_kapsami) ?? 0,
         randevu_sayisi: randevuSayisi,
         rakip_sayisi: Number(item.rakip_sayisi) || 0,
         talep_rakip_orani: oran
@@ -1088,103 +1100,170 @@ export const getKarZarar = async (req, res) => {
  */
 export const getIlceUygunlukSkoruAnalizler = async (req, res) => {
   try {
-    // İlçe bazında randevu ve rakip sayılarını al (Konak hariç)
+    // İlçe bazında randevu, rakip sayıları ve nüfus yoğunluğunu al (Konak hariç)
     const [data] = await pool.execute(`
       SELECT 
         i.ilce_ad,
+        i.analiz_kapsami,
         COUNT(DISTINCT r.randevu_id) AS randevu_sayisi,
-        COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi
+        COUNT(DISTINCT ri.rakip_id) AS rakip_sayisi,
+        CASE
+          WHEN id.nufus_yogunlugu IS NOT NULL THEN id.nufus_yogunlugu
+          WHEN id.nufus IS NOT NULL AND id.yuzolcumu_km2 IS NOT NULL AND id.yuzolcumu_km2 > 0 
+            THEN ROUND(id.nufus / id.yuzolcumu_km2)
+          WHEN i.ilce_ad = 'Bornova' THEN 1850
+          WHEN i.ilce_ad = 'Karşıyaka' THEN 4120
+          WHEN i.ilce_ad = 'Buca' THEN 1150
+          WHEN i.ilce_ad = 'Çiğli' THEN 850
+          WHEN i.ilce_ad = 'Bayraklı' THEN 3950
+          WHEN i.ilce_ad = 'Gaziemir' THEN 1120
+          WHEN i.ilce_ad = 'Balçova' THEN 3500
+          ELSE NULL
+        END AS nufus_yogunlugu
       FROM ilce i
       LEFT JOIN musteri m ON m.ilce_id = i.ilce_id AND m.is_test = 0
       LEFT JOIN randevu r ON r.musteri_id = m.musteri_id
       LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
+      LEFT JOIN ilce_demografi id ON id.ilce_id = i.ilce_id
       WHERE i.ilce_ad != 'Konak'
-      GROUP BY i.ilce_id, i.ilce_ad
+      GROUP BY i.ilce_id, i.ilce_ad, i.analiz_kapsami, id.nufus_yogunlugu, id.nufus, id.yuzolcumu_km2
     `);
 
     if (!data || data.length === 0) {
       return res.json([]);
     }
 
-    // Normalize edilmiş rakip sayılarını hesapla
+    // Normalize edilmiş rakip sayılarını hesapla ve talep/rakip oranını ekle
     const dataWithNormalizeRakip = data.map(item => {
       const ilceAd = item.ilce_ad || "";
       const bilinenRakip = Number(item.rakip_sayisi) || 0;
+      const randevuSayisi = Number(item.randevu_sayisi) || 0;
       
-      // Normalize edilmiş rakip sayısı (rekabet yoğunluğu)
-      let normalizeRakip = bilinenRakip;
-      if (ilceAd === 'Karşıyaka') {
-        normalizeRakip = bilinenRakip * 8;
-      } else if (ilceAd === 'Buca') {
-        normalizeRakip = bilinenRakip * 5;
-      } else if (ilceAd === 'Konak') {
-        normalizeRakip = bilinenRakip * 6;
-      } else {
-        normalizeRakip = bilinenRakip * 4;
-      }
+      // Normalize edilmiş rakip sayısı
+      const normalizeRakip = hesaplaNormalizeRakip(ilceAd, bilinenRakip);
+      
+      // Talep/rakip oranı
+      const talepRakipOrani = normalizeRakip > 0 
+        ? Math.round((randevuSayisi / normalizeRakip) * 10) / 10 
+        : 0;
       
       return {
         ...item,
-        normalize_rakip: normalizeRakip
+        normalize_rakip: normalizeRakip,
+        talep_rakip_orani: talepRakipOrani,
+        analiz_kapsami: Number(item.analiz_kapsami) ?? 0,
+        nufus_yogunlugu: item.nufus_yogunlugu !== null ? Number(item.nufus_yogunlugu) : null
       };
     });
 
-    // Talep skoru için normalize (randevu sayısı → 0-100)
+    // Maksimum değerleri hesapla (normalize için)
     const randevuSayilari = dataWithNormalizeRakip.map(d => Number(d.randevu_sayisi) || 0);
     const maxRandevu = Math.max(...randevuSayilari, 1);
 
-    // Gelir skoru için normalize (potansiyel_gelir → 0-100)
-    const potansiyelGelirler = randevuSayilari.map(r => r * 1400);
-    const maxGelir = Math.max(...potansiyelGelirler, 1);
+    const talepRakipOranlari = dataWithNormalizeRakip.map(d => Number(d.talep_rakip_orani) || 0);
+    const maxTalepRakipOrani = Math.max(...talepRakipOranlari, 1);
 
-    // Normalize edilmiş rakip sayısı için max değer
     const normalizeRakipSayilari = dataWithNormalizeRakip.map(d => Number(d.normalize_rakip) || 0);
     const maxNormalizeRakip = Math.max(...normalizeRakipSayilari, 1);
 
-    // Skorları hesapla - Veri yoksa bile skor üret
+    // Nüfus yoğunluğu için normalize (sadece ana ilçeler için - analiz_kapsami = 1)
+    const anaIlcelerNufusYogunluk = dataWithNormalizeRakip
+      .filter(d => d.analiz_kapsami === 1 && d.nufus_yogunlugu !== null && d.nufus_yogunlugu > 0)
+      .map(d => Number(d.nufus_yogunlugu));
+    const maxNufusYogunlugu = anaIlcelerNufusYogunluk.length > 0 ? Math.max(...anaIlcelerNufusYogunluk, 1) : 1;
+
+    // Skorları hesapla - Yeni formül kullanılıyor
     const result = dataWithNormalizeRakip.map(item => {
       const randevuSayisi = Number(item.randevu_sayisi) || 0;
-      const rakipSayisi = Number(item.rakip_sayisi) || 0;
       const normalizeRakip = Number(item.normalize_rakip) || 0;
+      const talepRakipOrani = Number(item.talep_rakip_orani) || 0;
+      const isAnaIlce = item.analiz_kapsami === 1;
+      const nufusYogunlugu = item.nufus_yogunlugu;
 
-      // Talep skoru (0-100 normalize): (değer / max) * 100
-      const talepSkoru = maxRandevu > 0 
-        ? Math.round((randevuSayisi / maxRandevu) * 100)
-        : 0;
-      
-      // Potansiyel gelir
-      const potansiyelGelir = randevuSayisi * 1400;
-      
-      // Gelir skoru (0-100 normalize): (değer / max) * 100
-      const gelirSkoru = maxGelir > 0 
-        ? Math.round((potansiyelGelir / maxGelir) * 100)
-        : 0;
+      // Risk seviyesi hesapla
+      const riskSeviyesi = hesaplaRiskSeviyesiHarita(normalizeRakip, talepRakipOrani);
 
-      // Normalize edilmiş rakip skoru (yüksek normalize rakip = düşük skor)
-      // Normalize edilmiş rakip sayısını normalize et (0-1 arası)
-      const normalizeRakipNorm = normalizeRakip / maxNormalizeRakip;
-      // Ters etki: yüksek normalize rakip = düşük rakip skoru
-      const rakipSkoru = Math.round((1 - normalizeRakipNorm) * 100);
+      const ilceAd = item.ilce_ad || "Bilinmeyen İlçe";
 
-      // Uygunluk skoru
-      const uygunlukSkoru = Math.round(
-        (talepSkoru * 0.4) + 
-        (gelirSkoru * 0.35) + 
-        (rakipSkoru * 0.25)
-      );
+      // Yatırım skoru hesapla (yeni formül - sadece ana ilçeler için)
+      const yatirimSkoru = computeIlceUygunlukSkoru({
+        talepRakipOrani,
+        randevuSayisi,
+        nufusYogunlugu,
+        normalizeRakip,
+        riskSeviyesi,
+        maxValues: {
+          maxTalepRakipOrani,
+          maxRandevu,
+          maxNufusYogunlugu,
+          maxNormalizeRakip
+        },
+        isAnaIlce,
+        ilceAd
+      });
 
+      // Mikro ilçeler için skor null, ana ilçeler için hesaplanan skor
+      // ham_skor: sıralama için kullanılacak (response'a eklenmeyecek)
+      // yatirim_skoru: normalize edilmiş gösterim skoru (UI için)
       return {
-        ilce_ad: item.ilce_ad || "Bilinmeyen İlçe",
+        ilce_ad: ilceAd,
         randevu_sayisi: randevuSayisi,
-        talep_skoru: Math.max(0, Math.min(100, talepSkoru)),
-        gelir_skoru: Math.max(0, Math.min(100, gelirSkoru)),
-        rakip_skoru: Math.max(0, Math.min(100, rakipSkoru)),
-        uygunluk_skoru: Math.max(0, Math.min(100, uygunlukSkoru))
+        talep_rakip_orani: talepRakipOrani,
+        nufus_yogunlugu: nufusYogunlugu,
+        ham_skor: yatirimSkoru !== null ? Math.max(0, Math.min(100, yatirimSkoru)) : null, // Sıralama için (geçici)
+        yatirim_skoru: yatirimSkoru !== null ? Math.max(0, Math.min(100, yatirimSkoru)) : null, // Normalize edilecek
+        risk_seviyesi: riskSeviyesi
       };
     });
 
-    // Uygunluk skoruna göre sırala (yüksekten düşüğe)
-    result.sort((a, b) => b.uygunluk_skoru - a.uygunluk_skoru);
+    // Ham skorları normalize et (gösterim skoru için)
+    // Sadece ana ilçeler için (null olmayan skorlar)
+    const anaIlceSkorlari = result
+      .filter(item => item.ham_skor !== null && item.ham_skor !== undefined)
+      .map(item => item.ham_skor);
+    
+    if (anaIlceSkorlari.length > 0) {
+      const minHamSkor = Math.min(...anaIlceSkorlari);
+      const maxHamSkor = Math.max(...anaIlceSkorlari);
+      
+      // Lineer scaling: En düşük ≈ 60, En yüksek ≈ 95
+      const targetMin = 60;
+      const targetMax = 95;
+      
+      // Her ilçe için gösterim skorunu hesapla
+      result.forEach(item => {
+        if (item.ham_skor !== null && item.ham_skor !== undefined) {
+          // Linear scaling: (score - min) / (max - min) * (targetMax - targetMin) + targetMin
+          if (maxHamSkor > minHamSkor) {
+            const normalized = ((item.ham_skor - minHamSkor) / (maxHamSkor - minHamSkor)) * (targetMax - targetMin) + targetMin;
+            item.yatirim_skoru = Math.round(Math.max(targetMin, Math.min(targetMax, normalized)));
+          } else {
+            // Tüm skorlar aynıysa ortalamayı kullan
+            item.yatirim_skoru = Math.round((targetMin + targetMax) / 2);
+          }
+        }
+      });
+    }
+
+    // ham_skor'u response'dan çıkar (sadece sıralama için kullanıldı)
+    result.forEach(item => {
+      delete item.ham_skor;
+    });
+
+    // Ham skora göre sırala (yüksekten düşüğe) - Sıralama ham skora göre olmalı
+    // Ana ilçeler önce (skor null olmayanlar), sonra mikro ilçeler
+    // Sıralama HAM SKORA göre yapılmalı (gösterim skoruna değil)
+    result.sort((a, b) => {
+      // Ana ilçeler (ham_skor null değil) önce
+      if (a.ham_skor !== null && b.ham_skor === null) return -1;
+      if (a.ham_skor === null && b.ham_skor !== null) return 1;
+      // İkisi de ana ilçe ise HAM SKORA göre sırala
+      if (a.ham_skor !== null && b.ham_skor !== null) {
+        return b.ham_skor - a.ham_skor;
+      }
+      // İkisi de mikro ilçe ise alfabetik
+      return a.ilce_ad.localeCompare(b.ilce_ad, 'tr');
+    });
 
     res.json(result);
   } catch (err) {

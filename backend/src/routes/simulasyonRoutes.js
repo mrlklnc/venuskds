@@ -1,5 +1,6 @@
 import express from "express";
 import pool from "../lib/db.js";
+import { hesaplaNormalizeRakip, hesaplaRiskSeviyesi, computeIlceSkoru } from "../utils/ilceSkorUtil.js";
 
 const router = express.Router();
 
@@ -167,9 +168,9 @@ router.get("/ilce", async (req, res) => {
       return res.status(400).json({ error: "ilce_id parametresi gerekli" });
     }
 
-    // İlçe adını ilce_id'den al
+    // İlçe adını ve analiz_kapsami bilgisini ilce_id'den al
     const [ilceData] = await pool.execute(`
-      SELECT ilce_ad FROM ilce WHERE ilce_id = ?
+      SELECT ilce_ad, analiz_kapsami FROM ilce WHERE ilce_id = ?
     `, [ilce_id]);
 
     if (ilceData.length === 0) {
@@ -177,6 +178,7 @@ router.get("/ilce", async (req, res) => {
     }
 
     const ilceAd = ilceData[0].ilce_ad;
+    const analizKapsami = Number(ilceData[0].analiz_kapsami) ?? 1;
 
     // 1. Rakip sayısını al (rakip_isletme tablosundan)
     const [rakipData] = await pool.execute(`
@@ -217,6 +219,29 @@ router.get("/ilce", async (req, res) => {
 
     // 3. Normalize edilmiş rakip sayısını hesapla
     const normalize_rakip = Math.round(db_rakip * ilceCarpani);
+
+    // 3.5. MİKRO İLÇE İÇİN DB'DEN MUSTERI VE RANDEVU SAYILARI (analiz_kapsami = 0)
+    let db_musteri_sayisi = null;
+    let db_randevu_sayisi = null;
+    
+    if (analizKapsami === 0) {
+      // Mikro ilçe için DB'den gerçek sayıları çek
+      const [musteriCountData] = await pool.execute(`
+        SELECT COUNT(DISTINCT m.musteri_id) AS musteri_sayisi
+        FROM musteri m
+        WHERE m.ilce_id = ? AND m.is_test = 0
+      `, [ilce_id]);
+      
+      const [randevuCountData] = await pool.execute(`
+        SELECT COUNT(DISTINCT r.randevu_id) AS randevu_sayisi
+        FROM randevu r
+        JOIN musteri m ON r.musteri_id = m.musteri_id
+        WHERE m.ilce_id = ? AND r.tarih IS NOT NULL AND m.is_test = 0
+      `, [ilce_id]);
+      
+      db_musteri_sayisi = musteriCountData.length > 0 ? Number(musteriCountData[0].musteri_sayisi) || 0 : 0;
+      db_randevu_sayisi = randevuCountData.length > 0 ? Number(randevuCountData[0].randevu_sayisi) || 0 : 0;
+    }
 
     // 4. İlçe uygunluk skorunu al (Analizler endpoint'inden aynı mantık)
     const [uygunlukData] = await pool.execute(`
@@ -358,13 +383,247 @@ router.get("/ilce", async (req, res) => {
       tahmini_gelir,
       toplam_gider,
       net_kar,
-      risk_seviyesi
+      risk_seviyesi,
+      // Mikro ilçe için DB'den gelen gerçek değerler (analiz_kapsami = 0)
+      analiz_kapsami: analizKapsami,
+      musteri_sayisi: db_musteri_sayisi, // Mikro ilçe için DB'den gelen musteri sayısı
+      randevu_sayisi: db_randevu_sayisi  // Mikro ilçe için DB'den gelen randevu sayısı
     };
 
     res.json(result);
   } catch (error) {
     console.error("Error fetching ilce by id:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/simulasyon/skor-ozet
+ * Sadece ana ilçeler (analiz_kapsami = 1) için simülasyon verilerinden skor hesaplama
+ * Simülasyon sayfasındaki mantıkla birebir aynı hesaplamaları yapar
+ */
+router.get("/skor-ozet", async (req, res) => {
+  try {
+    // Sadece ana ilçeleri al (analiz_kapsami = 1)
+    const [ilceList] = await pool.execute(`
+      SELECT ilce_id, ilce_ad, analiz_kapsami FROM ilce WHERE analiz_kapsami = 1
+    `);
+
+    if (!ilceList || ilceList.length === 0) {
+      return res.json([]);
+    }
+
+    const ortalamaFiyat = 4500; // Simülasyon sayfasındaki ile aynı
+
+    // Tüm ilçeler için randevu, müşteri, rakip verilerini al
+    const ilceDataMap = new Map();
+
+    for (const ilce of ilceList) {
+      const ilceId = ilce.ilce_id;
+      const ilceAd = ilce.ilce_ad;
+      const analizKapsami = Number(ilce.analiz_kapsami) ?? 1;
+
+      // Randevu sayısı
+      const [randevuData] = await pool.execute(`
+        SELECT COUNT(DISTINCT r.randevu_id) AS randevu_sayisi
+        FROM randevu r
+        JOIN musteri m ON r.musteri_id = m.musteri_id
+        WHERE m.ilce_id = ? AND r.tarih IS NOT NULL AND m.is_test = 0
+      `, [ilceId]);
+      const toplamRandevu = randevuData.length > 0 ? Number(randevuData[0].randevu_sayisi) || 0 : 0;
+
+      // Müşteri sayısı
+      const [musteriData] = await pool.execute(`
+        SELECT COUNT(DISTINCT m.musteri_id) AS musteri_sayisi
+        FROM musteri m
+        WHERE m.ilce_id = ? AND m.is_test = 0
+      `, [ilceId]);
+      const musteriSayisi = musteriData.length > 0 ? Number(musteriData[0].musteri_sayisi) || 0 : 0;
+
+      // Rakip sayısı (bilinen)
+      const [rakipData] = await pool.execute(`
+        SELECT COUNT(ri.rakip_id) AS rakip_sayisi
+        FROM ilce i
+        LEFT JOIN rakip_isletme ri ON ri.ilce_id = i.ilce_id
+        WHERE i.ilce_id = ?
+        GROUP BY i.ilce_id
+      `, [ilceId]);
+      const bilinenRakip = rakipData.length > 0 ? Number(rakipData[0].rakip_sayisi) || 0 : 0;
+
+      // Normalize rakip hesapla (util fonksiyonu ile)
+      const rakipNormalize = hesaplaNormalizeRakip(ilceAd, bilinenRakip);
+
+      // Sadece ana ilçeler için hesaplama (analiz_kapsami = 1 olduğu garanti)
+      // Ana ilçe: tahmini müşteri hesaplaması (simülasyon mantığı ile aynı)
+      const ACILIS_ETKISI = 0.15;
+      const KAMPANYA_ETKISI = 0.10;
+      const YAKINLIK_ETKISI = 0.05;
+      const TOPLAM_CARPAN = 1 + ACILIS_ETKISI + KAMPANYA_ETKISI + YAKINLIK_ETKISI;
+      const tahminiMusteri = Math.round(musteriSayisi * TOPLAM_CARPAN); // Aylık müşteri tahmini
+      const aylikGelir = tahminiMusteri * ortalamaFiyat;
+      
+      // Ana ilçe: normalize rakibe göre risk seviyesi
+      const riskSeviyesi = hesaplaRiskSeviyesi(rakipNormalize);
+
+      ilceDataMap.set(ilceId, {
+        ilce_id: ilceId,
+        ilce_ad: ilceAd,
+        analiz_kapsami: analizKapsami,
+        randevu_sayisi: toplamRandevu,
+        rakip_normalize: rakipNormalize,
+        talep_rakip_orani: rakipNormalize > 0 ? toplamRandevu / rakipNormalize : 0,
+        risk: riskSeviyesi,
+        tahmini_aylik_gelir: aylikGelir,
+        tahmini_aylik_musteri: tahminiMusteri, // Yeni: Aylık müşteri tahmini
+        aylikGelir,
+        aylikMusteri: tahminiMusteri, // Skor hesaplaması için
+        rakipNormalize,
+        riskSeviyesi
+      });
+    }
+
+    // Maksimum değerleri hesapla (normalize için)
+    const maxAylikMusteri = Math.max(...Array.from(ilceDataMap.values()).map(d => d.aylikMusteri || 0), 1);
+    const maxGelir = Math.max(...Array.from(ilceDataMap.values()).map(d => d.aylikGelir), 1);
+    const maxRakip = Math.max(...Array.from(ilceDataMap.values()).map(d => d.rakipNormalize), 1);
+
+    // Her ilçe için skor hesapla
+    const result = Array.from(ilceDataMap.values()).map(ilceData => {
+      const yatirimSkoru = computeIlceSkoru(
+        {
+          aylikMusteri: ilceData.aylikMusteri || 0, // Aylık müşteri tahmini (en yüksek ağırlık)
+          aylikGelir: ilceData.aylikGelir,
+          rakipNormalize: ilceData.rakipNormalize,
+          riskSeviyesi: ilceData.riskSeviyesi
+        },
+        { maxAylikMusteri, maxGelir, maxRakip }
+      );
+
+      return {
+        ilce_id: ilceData.ilce_id,
+        ilce_ad: ilceData.ilce_ad,
+        analiz_kapsami: ilceData.analiz_kapsami,
+        randevu_sayisi: ilceData.randevu_sayisi,
+        rakip_normalize: ilceData.rakip_normalize,
+        talep_rakip_orani: Number(ilceData.talep_rakip_orani.toFixed(2)),
+        risk: ilceData.risk,
+        tahmini_aylik_gelir: ilceData.tahmini_aylik_gelir,
+        tahmini_aylik_musteri: ilceData.tahmini_aylik_musteri, // Aylık müşteri tahmini
+        uygunluk_skoru: yatirimSkoru
+      };
+    });
+
+    // Skora göre sırala (yüksekten düşüğe)
+    result.sort((a, b) => b.uygunluk_skoru - a.uygunluk_skoru);
+
+    // Debug çıktısı (dev ortamında)
+    if (process.env.NODE_ENV !== 'production') {
+      const debugIlceler = ['Çiğli', 'Bornova', 'Karşıyaka'];
+      console.log('\n=== İLÇE SKOR ÖZET DEBUG ===');
+      result
+        .filter(ilce => debugIlceler.includes(ilce.ilce_ad))
+        .forEach(ilce => {
+          console.log(`${ilce.ilce_ad}:`, {
+            randevu: ilce.randevu_sayisi,
+            rakip_normalize: ilce.rakip_normalize,
+            talep_rakip_orani: ilce.talep_rakip_orani,
+            risk: ilce.risk,
+            gelir: ilce.tahmini_aylik_gelir,
+            skor: ilce.uygunluk_skoru
+          });
+        });
+      console.log('==========================\n');
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching skor-ozet:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/simulasyon/nufus-yogunlugu
+ * Returns population density (nüfus yoğunluğu) for main districts only (analiz_kapsami = 1)
+ * Response: [{ ilce_id, ilce_ad, nufus_yogunlugu }, ...] - Top 8 districts by population density
+ */
+router.get("/nufus-yogunlugu", async (req, res) => {
+  try {
+    // İlçe demografi tablosundan nüfus yoğunluğunu al
+    // Sadece ana ilçeler (analiz_kapsami = 1) ve ilk 8 ilçe
+    const sql = `
+      SELECT 
+        i.ilce_id,
+        i.ilce_ad,
+        CASE
+          WHEN id.nufus_yogunlugu IS NOT NULL THEN id.nufus_yogunlugu
+          WHEN id.nufus IS NOT NULL AND id.yuzolcumu_km2 IS NOT NULL AND id.yuzolcumu_km2 > 0 
+            THEN ROUND(id.nufus / id.yuzolcumu_km2)
+          WHEN i.nufus IS NOT NULL THEN 
+            CASE
+              WHEN i.ilce_ad = 'Konak' THEN 30181
+              WHEN i.ilce_ad = 'Bornova' THEN 1850
+              WHEN i.ilce_ad = 'Karşıyaka' THEN 4120
+              WHEN i.ilce_ad = 'Buca' THEN 1150
+              WHEN i.ilce_ad = 'Çiğli' THEN 850
+              WHEN i.ilce_ad = 'Bayraklı' THEN 3950
+              WHEN i.ilce_ad = 'Menemen' THEN 180
+              WHEN i.ilce_ad = 'Gaziemir' THEN 1120
+              ELSE 500
+            END
+          ELSE 0
+        END AS nufus_yogunlugu
+      FROM ilce i
+      LEFT JOIN ilce_demografi id ON id.ilce_id = i.ilce_id
+      WHERE i.analiz_kapsami = 1
+      ORDER BY nufus_yogunlugu DESC
+      LIMIT 8
+    `;
+
+    const [data] = await pool.execute(sql);
+
+    const result = data.map(item => ({
+      ilce_id: Number(item.ilce_id) || 0,
+      ilce_ad: item.ilce_ad || "Bilinmeyen İlçe",
+      nufus_yogunlugu: Number(item.nufus_yogunlugu) || 0
+    }));
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error fetching nufus yogunlugu:", error);
+    // Eğer ilce_demografi tablosu yoksa, ilce tablosundan direkt veri çek
+    try {
+      const fallbackSql = `
+        SELECT 
+          i.ilce_id,
+          i.ilce_ad,
+          CASE
+            WHEN i.ilce_ad = 'Konak' THEN 30181
+            WHEN i.ilce_ad = 'Bornova' THEN 1850
+            WHEN i.ilce_ad = 'Karşıyaka' THEN 4120
+            WHEN i.ilce_ad = 'Buca' THEN 1150
+            WHEN i.ilce_ad = 'Çiğli' THEN 850
+            WHEN i.ilce_ad = 'Bayraklı' THEN 3950
+            WHEN i.ilce_ad = 'Menemen' THEN 180
+            WHEN i.ilce_ad = 'Gaziemir' THEN 1120
+            ELSE 500
+          END AS nufus_yogunlugu
+        FROM ilce i
+        WHERE i.analiz_kapsami = 1
+        ORDER BY nufus_yogunlugu DESC
+        LIMIT 8
+      `;
+      const [fallbackData] = await pool.execute(fallbackSql);
+      const result = fallbackData.map(item => ({
+        ilce_id: Number(item.ilce_id) || 0,
+        ilce_ad: item.ilce_ad || "Bilinmeyen İlçe",
+        nufus_yogunlugu: Number(item.nufus_yogunlugu) || 0
+      }));
+      res.json(result);
+    } catch (fallbackError) {
+      console.error("Error in fallback nufus yogunlugu:", fallbackError);
+      res.status(500).json({ error: fallbackError.message });
+    }
   }
 });
 

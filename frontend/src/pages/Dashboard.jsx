@@ -4,7 +4,126 @@ import { getRandevuAylik, getMusteriIlce, getEnKarliHizmetler, getTalepRakipOran
 import KPICard from "../components/KPICard";
 import { DollarSign, Users, Calendar, TrendingUp, TrendingDown, Minus, Lightbulb, MapPin, Star, Target } from "lucide-react";
 import { formatCurrency } from "../utils/format";
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, BarChart, Bar, Cell, Area, AreaChart, ReferenceDot } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, BarChart, Bar, Cell, Area, AreaChart, ReferenceDot, PieChart, Pie, Legend } from "recharts";
+
+// ═══════════════════════════════════════════════════════════════
+// SABİT: 8 Ana İlçe (skor/risk/karar hesaplamalarında kullanılır)
+// ═══════════════════════════════════════════════════════════════
+const ANA_ILCELER = [
+  'Konak',
+  'Karşıyaka',
+  'Bornova',
+  'Buca',
+  'Çiğli',
+  'Gaziemir',
+  'Bayraklı',
+  'Balçova'
+];
+
+// ⚠️ MİKRO İLÇE SABİT DEĞERLERİ: 22 mikro ilçe = 15 müşteri, 20 randevu
+const MIKRO_ILCE_TOPLAM_MUSTERI = 15;
+const MIKRO_ILCE_TOPLAM_RANDEVU = 20;
+
+const MOR_PALET_PASTA = [
+  '#7c3aed',
+  '#8b5cf6',
+  '#a78bfa',
+  '#c4b5fd',
+  '#ddd6fe',
+  '#ede9fe',
+  '#b794f4',
+  '#9f7aea'
+];
+
+/**
+ * Grafik verisi işleme: 
+ * - 8 ana ilçe HER ZAMAN ayrı gösterilir
+ * - analiz_kapsami = 0 olan ilçeler "Diğer İlçeler" olarak toplanır
+ * - "Diğer İlçeler" için SABİT değerler: 15 müşteri, 20 randevu
+ */
+const processIlceDataForChart = (data, ilceKey = 'ilce', valueKey = 'musteri_sayisi') => {
+  if (!Array.isArray(data)) return [];
+  
+  const seen = new Set();
+  const anaIlceler = [];
+  let mikroIlceSayisi = 0;
+  
+  data.forEach(item => {
+    const ilceAd = (item[ilceKey] || item.ilce_ad || item.ilce || '').trim();
+    if (!ilceAd || seen.has(ilceAd)) return;
+    seen.add(ilceAd);
+    
+    if (ANA_ILCELER.includes(ilceAd)) {
+      anaIlceler.push({ ...item, [ilceKey]: ilceAd });
+    } else {
+      // Mikro ilçe (analiz_kapsami = 0) - sayıyı artır
+      mikroIlceSayisi++;
+    }
+  });
+  
+  // Ana ilçeleri sabit sıraya göre sırala
+  anaIlceler.sort((a, b) => {
+    const aIlce = (a[ilceKey] || '').trim();
+    const bIlce = (b[ilceKey] || '').trim();
+    return ANA_ILCELER.indexOf(aIlce) - ANA_ILCELER.indexOf(bIlce);
+  });
+  
+  // "Diğer İlçeler" barını ekle (mikro ilçeler için SABİT değerler)
+  if (mikroIlceSayisi > 0) {
+    const digerItem = { 
+      [ilceKey]: 'Diğer İlçeler', 
+      [valueKey]: valueKey === 'musteri_sayisi' ? MIKRO_ILCE_TOPLAM_MUSTERI : MIKRO_ILCE_TOPLAM_RANDEVU
+    };
+    // Her iki değeri de ekle
+    if (valueKey === 'musteri_sayisi') {
+      digerItem.randevu_sayisi = MIKRO_ILCE_TOPLAM_RANDEVU;
+    } else if (valueKey === 'randevu_sayisi') {
+      digerItem.musteri_sayisi = MIKRO_ILCE_TOPLAM_MUSTERI;
+    }
+    anaIlceler.push(digerItem);
+  }
+  
+  return anaIlceler;
+};
+
+// Sadece ana ilçeleri filtrele (hesaplamalar için)
+const filterAnaIlceler = (data, ilceKey = 'ilce') => {
+  if (!Array.isArray(data)) return [];
+  
+  const seen = new Set();
+  return data.filter(item => {
+    const ilceAd = (item[ilceKey] || item.ilce_ad || item.ilce || '').trim();
+    if (!ANA_ILCELER.includes(ilceAd)) return false;
+    if (seen.has(ilceAd)) return false;
+    seen.add(ilceAd);
+    return true;
+  });
+};
+
+/**
+ * Grafik verisi sıralama: Çoktan aza (DESC)
+ * - "Diğer İlçeler" her zaman en sonda kalır
+ */
+const sortDescForChart = (data, valueKey, ilceKey = 'ilce') => {
+  if (!Array.isArray(data) || data.length === 0) return data;
+  
+  // "Diğer İlçeler"i ayır
+  const digerIlceler = data.filter(item => {
+    const ad = (item[ilceKey] || item.ilce_ad || item.ilce || '').trim();
+    return ad === 'Diğer İlçeler';
+  });
+  
+  // Geri kalanları sırala (DESC)
+  const sorted = data
+    .filter(item => {
+      const ad = (item[ilceKey] || item.ilce_ad || item.ilce || '').trim();
+      return ad !== 'Diğer İlçeler';
+    })
+    .sort((a, b) => (Number(b[valueKey]) || 0) - (Number(a[valueKey]) || 0));
+  
+  // "Diğer İlçeler"i en sona ekle
+  return [...sorted, ...digerIlceler];
+};
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -18,6 +137,8 @@ export default function Dashboard() {
 
   const [aylikRandevu, setAylikRandevu] = useState([]);
   const [musteriIlce, setMusteriIlce] = useState([]);
+  const [talepRakipIlceData, setTalepRakipIlceData] = useState([]);
+  const [ilceUygunlukSkorlari, setIlceUygunlukSkorlari] = useState([]);
   const [enGucluIlce, setEnGucluIlce] = useState(null);
   const [enDegerliHizmet, setEnDegerliHizmet] = useState(null);
   const [enVerimliOran, setEnVerimliOran] = useState(null);
@@ -26,6 +147,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const loadDashboard = async () => {
+      let musteriIlceMap = new Map();
       try {
         setLoading(true);
         setErrMsg("");
@@ -91,18 +213,20 @@ export default function Dashboard() {
         try {
           const ilceData = await getMusteriIlce();
           console.log("✅ Müşteri ilçe verisi:", ilceData);
-          // Backend'den gelen veri formatı: { ilce, musteri_sayisi } - zaten DESC sıralı
-          // En yüksek 5 ilçeyi al
-          const top5Ilce = Array.isArray(ilceData) 
-            ? ilceData.slice(0, 5).map(item => ({
-                ilce: item.ilce || "Bilinmeyen",
-                musteriSayisi: Number(item.musteri_sayisi) || 0
-              }))
-            : [];
-          setMusteriIlce(top5Ilce);
+          // 8 ana ilçe + "Diğer İlçeler" gruplaması
+          const processedData = processIlceDataForChart(ilceData, 'ilce', 'musteri_sayisi');
+          const formattedData = processedData.map(item => ({
+            ilce: item.ilce || "Bilinmeyen",
+            musteriSayisi: Number(item.musteri_sayisi) || 0
+          }));
+          // ✅ Çoktan aza sırala ("Diğer İlçeler" en sonda)
+          const sortedData = sortDescForChart(formattedData, 'musteriSayisi', 'ilce');
+          setMusteriIlce(sortedData);
+          musteriIlceMap = new Map(sortedData.map(item => [item.ilce, item.musteriSayisi]));
         } catch (e) {
           console.error("❌ Müşteri ilçe veri hatası:", e);
           setMusteriIlce([]);
+          musteriIlceMap = new Map();
         }
 
         // Mevcut şube ilçesi (hesaplamalarda hariç tutulacak)
@@ -136,29 +260,34 @@ export default function Dashboard() {
           console.error("❌ İlçe randevu veri hatası:", e);
         }
 
-        // En Değerli Hizmet (Toplam Gelir / Randevu Sayısı en yüksek - ilçe filtresi yok)
+        // En Değerli Hizmet (Hizmet Gelir Payı grafiği ile senkronize - en yüksek toplam_gelir)
         try {
           const hizmetData = await getEnKarliHizmetler();
           if (Array.isArray(hizmetData) && hizmetData.length > 0) {
-            // Toplam Gelir / Randevu Sayısı hesapla ve sırala
-            const hizmetlerWithRatio = hizmetData.map(item => ({
-              ...item,
-              gelirPerRandevu: (Number(item.randevu_sayisi) || 0) > 0 
-                ? (Number(item.toplam_gelir) || 0) / (Number(item.randevu_sayisi) || 1)
-                : Number(item.ortalama_gelir) || 0
-            }));
-            
-            const sortedByGelir = [...hizmetlerWithRatio].sort((a, b) => 
-              (b.gelirPerRandevu || 0) - (a.gelirPerRandevu || 0)
+            // Hizmet Gelir Payı grafiği ile aynı veri kaynağı: toplam_gelir'e göre sırala
+            const sortedByToplamGelir = [...hizmetData].sort((a, b) => 
+              (Number(b.toplam_gelir) || 0) - (Number(a.toplam_gelir) || 0)
             );
             
-            setEnDegerliHizmet({
-              hizmet: sortedByGelir[0].hizmet_ad || sortedByGelir[0].hizmet || "Bilinmeyen",
-              ortalamaGelir: sortedByGelir[0].gelirPerRandevu || 0
-            });
+            const enYuksekGelirliHizmet = sortedByToplamGelir[0];
+            const toplamGelir = Number(enYuksekGelirliHizmet.toplam_gelir) || 0;
+            
+            // Sadece toplam_gelir > 0 ise göster
+            if (toplamGelir > 0) {
+              setEnDegerliHizmet({
+                hizmet: enYuksekGelirliHizmet.hizmet_ad || "Bilinmeyen",
+                toplamGelir: toplamGelir,
+                randevuSayisi: Number(enYuksekGelirliHizmet.toplam_randevu) || 0
+              });
+            } else {
+              setEnDegerliHizmet(null);
+            }
+          } else {
+            setEnDegerliHizmet(null);
           }
         } catch (e) {
           console.error("❌ Hizmet veri hatası:", e);
+          setEnDegerliHizmet(null);
         }
 
         // En Verimli Oran ve Fırsat/Risk Listeleri (talep/rakip oranı - mevcut şube hariç)
@@ -172,6 +301,41 @@ export default function Dashboard() {
             });
             
             if (filteredOranData.length > 0) {
+              const anaIlceOranData = filterAnaIlceler(filteredOranData, 'ilce_ad');
+              const pieDataset = anaIlceOranData.map(item => ({
+                ilce: item.ilce_ad || item.ilce || "Bilinmeyen",
+                talep: Number(item.randevu_sayisi) || 0,
+                rakip: Number(item.rakip_sayisi) || 0,
+                oran: Number(item.talep_rakip_orani) || 0
+              }));
+              setTalepRakipIlceData(pieDataset);
+
+              if (pieDataset.length > 0) {
+                const maxTalep = Math.max(...pieDataset.map(item => item.talep), 0);
+                const maxOran = Math.max(...pieDataset.map(item => item.oran), 0);
+                const maxMusteri = Math.max(...(musteriIlceMap.size ? Array.from(musteriIlceMap.values()) : [0]));
+
+                const skorData = pieDataset
+                  .map(item => {
+                    const musteriSayisi = musteriIlceMap.get(item.ilce) || 0;
+                    const talepSkor = maxTalep ? item.talep / maxTalep : 0;
+                    const oranSkor = maxOran ? item.oran / maxOran : 0;
+                    const musteriSkor = maxMusteri ? musteriSayisi / maxMusteri : 0;
+                    const toplamSkor = Math.round((talepSkor * 0.35 + oranSkor * 0.4 + musteriSkor * 0.25) * 100);
+
+                    return {
+                      ...item,
+                      musteriSayisi,
+                      skor: Math.min(100, toplamSkor)
+                    };
+                  })
+                  .sort((a, b) => b.skor - a.skor);
+
+                setIlceUygunlukSkorlari(skorData);
+              } else {
+                setIlceUygunlukSkorlari([]);
+              }
+
               // Fırsat listesi: talep/rakip oranı en yüksek, eşitlikte randevu sayısı yüksek olan öne
               const sortedForFirsat = [...filteredOranData].sort((a, b) => {
                 const oranDiff = (Number(b.talep_rakip_orani) || 0) - (Number(a.talep_rakip_orani) || 0);
@@ -206,9 +370,14 @@ export default function Dashboard() {
                 randevuSayisi: Number(item.randevu_sayisi) || 0
               })));
             }
+          } else {
+            setTalepRakipIlceData([]);
+            setIlceUygunlukSkorlari([]);
           }
         } catch (e) {
           console.error("❌ Talep/Rakip oranı veri hatası:", e);
+          setTalepRakipIlceData([]);
+          setIlceUygunlukSkorlari([]);
         }
       } catch (e) {
         console.error("❌ Dashboard veri hatası:", e);
@@ -583,6 +752,176 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Alt Grafik Satırı - Yan Yana */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
+        {/* Sol Alt: Talep – Rakip Dengesi (Pie) */}
+        <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-6 shadow-sm">
+          <h2 className="text-base font-medium mb-2 text-gray-800">
+            Talep – Rakip Dengesi
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">İlçelerde talep ve rakip yoğunluğu görünümü</p>
+          {talepRakipIlceData && talepRakipIlceData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const item = payload[0]?.payload || {};
+                    const ilce = item.ilce || label || "";
+                    const talep = item.talep || 0;
+                    const rakip = item.rakip ?? 0;
+
+                    return (
+                      <div
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid #c4b5fd',
+                          borderRadius: '12px',
+                          padding: '12px 14px',
+                          boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: '#5b21b6',
+                            fontWeight: 700,
+                            fontSize: '13px',
+                            marginBottom: '4px',
+                            whiteSpace: 'pre-line'
+                          }}
+                        >
+                          {ilce}
+                        </div>
+                        <div style={{ color: '#4b5563', fontSize: '13px', fontWeight: 500, lineHeight: 1.5 }}>
+                          <div>{`${talep} Talep`}</div>
+                          <div>{`Rakip Sayısı: ${rakip}`}</div>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="bottom" iconType="circle" iconSize={10} wrapperStyle={{ fontSize: 12, color: '#5b21b6' }} />
+                <Pie
+                  data={talepRakipIlceData}
+                  dataKey="talep"
+                  nameKey="ilce"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={2}
+                  stroke="#fff"
+                  strokeWidth={1}
+                >
+                  {talepRakipIlceData.map((entry, index) => (
+                    <Cell key={`talep-pie-${entry.ilce}-${index}`} fill={MOR_PALET_PASTA[index % MOR_PALET_PASTA.length]} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-64 text-gray-500">
+              <p>Henüz yeterli veri yok</p>
+            </div>
+          )}
+        </div>
+
+        {/* Sağ Alt: İlçe Uygunluk Skoru (Horizontal Bar) */}
+        <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-6 shadow-sm">
+          <h2 className="text-base font-medium mb-2 text-gray-800">
+            İlçe Uygunluk Skoru
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">Müşteri, talep ve rakip dengesi (0-100)</p>
+          {ilceUygunlukSkorlari && ilceUygunlukSkorlari.length > 0 ? (() => {
+            const maxSkor = Math.max(...ilceUygunlukSkorlari.map(item => item.skor), 0);
+            return (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart
+                  data={ilceUygunlukSkorlari}
+                  layout="vertical"
+                  margin={{ left: 0, right: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
+                  <XAxis 
+                    type="number" 
+                    domain={[0, 100]} 
+                    tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }} 
+                    axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }} 
+                    tickLine={{ stroke: '#c4b5fd' }} 
+                  />
+                  <YAxis 
+                    dataKey="ilce" 
+                    type="category" 
+                    width={110}
+                    tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }} 
+                    axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }} 
+                    tickLine={{ stroke: '#c4b5fd' }} 
+                  />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid #c4b5fd',
+                      borderRadius: '12px',
+                      padding: '14px 18px',
+                      boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
+                    }}
+                    labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}
+                    itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
+                    formatter={(value, _name, props) => {
+                      const payload = props?.payload || {};
+                      return [`${value} puan`, `Talep: ${payload.talep} | Rakip: ${payload.rakip}`];
+                    }}
+                    labelFormatter={(label, payload) => {
+                      const item = payload?.[0]?.payload;
+                      if (!item) return `📍 ${label}`;
+                      return `📍 ${label} | Talep/Rakip Oranı: ${item.oran.toFixed(2)}`;
+                    }}
+                    cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
+                  />
+                  <Bar 
+                    dataKey="skor" 
+                    radius={[8, 8, 8, 8]}
+                    barSize={16}
+                  >
+                    {ilceUygunlukSkorlari.map((entry, index) => {
+                      const isMax = entry.skor === maxSkor;
+                      const ratio = maxSkor ? entry.skor / maxSkor : 0;
+                      let fillColor;
+                      if (isMax) {
+                        fillColor = '#6d28d9';
+                      } else if (ratio >= 0.8) {
+                        fillColor = '#7c3aed';
+                      } else if (ratio >= 0.6) {
+                        fillColor = '#8b5cf6';
+                      } else if (ratio >= 0.4) {
+                        fillColor = '#a78bfa';
+                      } else if (ratio >= 0.2) {
+                        fillColor = '#c4b5fd';
+                      } else {
+                        fillColor = '#e0d7ff';
+                      }
+                      return (
+                        <Cell 
+                          key={`ilce-skor-${index}`} 
+                          fill={fillColor}
+                          style={{ filter: isMax ? 'drop-shadow(0 2px 6px rgba(109, 40, 217, 0.35))' : 'none' }}
+                        />
+                      );
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            );
+          })() : (
+            <div className="flex items-center justify-center h-64 text-gray-500">
+              <p>Henüz yeterli veri yok</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Performansı En Çok Etkileyen Faktörler */}
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">Performansı En Çok Etkileyen Faktörler</h2>
@@ -610,9 +949,17 @@ export default function Dashboard() {
               <span className="text-sm font-medium text-gray-500">En Değerli Hizmet</span>
             </div>
             <p className="text-xl font-bold text-amber-700">{enDegerliHizmet?.hizmet || "—"}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {enDegerliHizmet ? `${formatCurrency(enDegerliHizmet.ortalamaGelir)} / randevu` : "Veri bekleniyor..."}
+            <p className="text-sm font-semibold text-amber-600 mt-2">
+              {enDegerliHizmet && enDegerliHizmet.toplamGelir > 0 
+                ? formatCurrency(enDegerliHizmet.toplamGelir)
+                : "Henüz hesaplanmadı"
+              }
             </p>
+            {enDegerliHizmet && enDegerliHizmet.toplamGelir > 0 && enDegerliHizmet.randevuSayisi > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                {enDegerliHizmet.randevuSayisi} randevu
+              </p>
+            )}
           </div>
 
           {/* En Verimli Oran */}

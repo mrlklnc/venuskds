@@ -15,31 +15,37 @@ export default function KararOzeti() {
   const fetchKararOzetiData = async () => {
     try {
       setLoading(true);
-      // Grafikte kullanılan aynı endpoint'i kullan (getIlceUygunlukSkoruAnalizler)
-      // Bu sayede tüm panellerde aynı skorlar görünecek
+      // CBS İlçe Özeti tablosunun TEK kaynağı: getIlceUygunlukSkoruAnalizler
+      // Backend'den yatırım skoruna göre DESC sıralı geliyor (Buca, Çiğli, Balçova...)
       const response = await getIlceUygunlukSkoruAnalizler();
       
       if (response && Array.isArray(response) && response.length > 0) {
-        // Uygunluk skoruna göre sıralı (zaten backend'den sıralı geliyor)
-        // İlk 3 ilçeyi al
-        const filteredIlceler = response
-          .filter(ilce => ilce.uygunluk_skoru > 0) // Sadece pozitif skorlu ilçeler
-          .slice(0, 3); // İlk 3 ilçe
+        // CBS İlçe Özeti tablosundaki ilk 3 satırı al
+        // Backend'den zaten yatırım skoruna göre DESC sıralı geliyor (ham skora göre sıralı, normalize edilmiş)
+        // Sadece yatırım skoru olan ilçeleri al (mikro ilçeler için yatirim_skoru: null)
+        // Backend sıralaması: Buca (en yüksek), Çiğli, Balçova, ...
+        const ilcelerSkorlu = response.filter(ilce => ilce.yatirim_skoru !== null && ilce.yatirim_skoru !== undefined && ilce.yatirim_skoru > 0);
+        
+        // Yatırım skoruna göre DESC sırala (CBS tablosundaki sıralama ile aynı)
+        ilcelerSkorlu.sort((a, b) => b.yatirim_skoru - a.yatirim_skoru);
+        
+        // İlk 3 ilçeyi al (CBS İlçe Özeti tablosundaki ilk 3 satır: Buca, Çiğli, Balçova)
+        const filteredIlceler = ilcelerSkorlu.slice(0, 3);
         
         setIlceData(filteredIlceler);
 
         // Genel risk seviyesi hesaplama (simulasyon mantığıyla senkronize)
         // getIlceUygunlukSkoruAnalizler response'unda normalize_rakip yoksa rakip_skoru'ndan tahmin edilebilir
-        // Ancak daha basit bir yaklaşım: ortalama uygunluk skoruna göre risk belirleme
-        const ortalamaUygunlukSkoru = response.length > 0
-          ? response.reduce((sum, ilce) => sum + (ilce.uygunluk_skoru || 0), 0) / response.length
+        // Ancak daha basit bir yaklaşım: ortalama yatırım skoruna göre risk belirleme
+        const ortalamaYatirimSkoru = response.length > 0
+          ? response.reduce((sum, ilce) => sum + (ilce.yatirim_skoru || 0), 0) / response.length
           : 50;
 
-        // Risk seviyesi: düşük uygunluk skoru = yüksek risk
-        // Simulasyon mantığına benzer şekilde: risk_puani = (100 - uygunluk_skoru) + (normalize_rakip * 5)
-        // Burada normalize_rakip bilgisi olmadığı için sadece uygunluk skoruna göre risk belirliyoruz
-        // Ortalama uygunluk skoru düşükse risk yüksek
-        const riskPuani = 100 - ortalamaUygunlukSkoru;
+        // Risk seviyesi: düşük yatırım skoru = yüksek risk
+        // Simulasyon mantığına benzer şekilde: risk_puani = (100 - yatirim_skoru) + (normalize_rakip * 5)
+        // Burada normalize_rakip bilgisi olmadığı için sadece yatırım skoruna göre risk belirliyoruz
+        // Ortalama yatırım skoru düşükse risk yüksek
+        const riskPuani = 100 - ortalamaYatirimSkoru;
 
         // Risk sınıflandırması (simulasyon mantığıyla uyumlu)
         if (riskPuani <= 30) {
@@ -89,22 +95,25 @@ export default function KararOzeti() {
     if (ilce1 && ilce2 && ilce3) {
       return `${ilce1.ilce_ad} merkezli, kademeli çoklu şube açılışı önerilmektedir.`;
     }
-    return 'Buca merkezli, kademeli çoklu şube açılışı önerilmektedir.';
+    // Fallback: CBS sıralamasından ilk 3 ilçe alınamadıysa
+    return 'İlk öncelikli ilçe merkezli, kademeli çoklu şube açılışı önerilmektedir.';
   };
 
   const getAnaKararDetay = () => {
     if (ilce1 && ilce2 && ilce3) {
       return `Veriler ${ilce1.ilce_ad}'ın ana yatırım noktası olduğunu, ${ilce2.ilce_ad} ve ${ilce3.ilce_ad}'ın ikinci faz için uygun ilçeler olduğunu göstermektedir.`;
     }
-    return "Veriler Buca'nın ana yatırım noktası olduğunu, Bornova ve Karşıyaka'nın ikinci faz için uygun ilçeler olduğunu göstermektedir.";
+    // Fallback: CBS sıralamasından ilk 3 ilçe alınamadıysa
+    return `Veriler ilk öncelikli ilçenin ana yatırım noktası olduğunu, diğer ilçelerin ikinci faz için uygun olduğunu göstermektedir.`;
   };
 
-  // Nihai öneri metni dinamik
+  // Nihai öneri metni dinamik (CBS İlçe Özeti sıralamasına göre)
   const getNihaiOneri = () => {
     if (ilce1 && ilce2 && ilce3) {
       return `${ilce1.ilce_ad}'da pilot şube açılarak başlanmalı, 6. ayda performans hedefleri sağlanırsa ${ilce2.ilce_ad}, 12. ayda ${ilce3.ilce_ad} yatırımı yapılmalıdır.`;
     }
-    return "Buca'da pilot şube açılarak başlanmalı, 6. ayda performans hedefleri sağlanırsa Bornova, 12. ayda Karşıyaka yatırımı yapılmalıdır.";
+    // Fallback: CBS sıralamasından ilk 3 ilçe alınamadıysa
+    return "İlk öncelikli ilçede pilot şube açılarak başlanmalı, 6. ayda performans hedefleri sağlanırsa ikinci öncelikli ilçe, 12. ayda üçüncü öncelikli ilçe yatırımı yapılmalıdır.";
   };
 
   if (loading) {
@@ -158,15 +167,15 @@ export default function KararOzeti() {
             <div className="space-y-3">
               <div>
                 <p className="text-green-100 text-sm mb-1">Uygunluk Skoru</p>
-                <p className="text-3xl font-bold">{ilce1.uygunluk_skoru} / 100</p>
+                <p className="text-3xl font-bold">{ilce1.yatirim_skoru} / 100</p>
               </div>
               <div className="pt-3 border-t border-green-400/30">
                 <p className="text-green-100 text-sm mb-1">Rol</p>
-                <p className="text-lg font-semibold">{getRol(0, ilce1.uygunluk_skoru)}</p>
+                <p className="text-lg font-semibold">{getRol(0, ilce1.yatirim_skoru)}</p>
               </div>
               <div>
                 <p className="text-green-100 text-sm mb-1">Açıklama</p>
-                <p className="text-green-50 text-sm">{getAciklama(0, ilce1.uygunluk_skoru, ilce1.randevu_sayisi)}</p>
+                <p className="text-green-50 text-sm">{getAciklama(0, ilce1.yatirim_skoru, ilce1.randevu_sayisi)}</p>
               </div>
             </div>
           </div>
@@ -178,19 +187,19 @@ export default function KararOzeti() {
               </div>
               <MapPin className="w-6 h-6" />
             </div>
-            <h3 className="text-2xl font-bold mb-4">Buca</h3>
+            <h3 className="text-2xl font-bold mb-4">{ilce1 ? ilce1.ilce_ad : '—'}</h3>
             <div className="space-y-3">
               <div>
-                <p className="text-green-100 text-sm mb-1">Uygunluk Skoru</p>
-                <p className="text-3xl font-bold">83 / 100</p>
+                <p className="text-green-100 text-sm mb-1">Yatırım Skoru</p>
+                <p className="text-3xl font-bold">{ilce1 ? `${ilce1.yatirim_skoru} / 100` : '— / 100'}</p>
               </div>
               <div className="pt-3 border-t border-green-400/30">
                 <p className="text-green-100 text-sm mb-1">Rol</p>
-                <p className="text-lg font-semibold">Ana Şube</p>
+                <p className="text-lg font-semibold">{ilce1 ? getRol(0, ilce1.yatirim_skoru) : '—'}</p>
               </div>
               <div>
                 <p className="text-green-100 text-sm mb-1">Açıklama</p>
-                <p className="text-green-50 text-sm">Yüksek talep ve hızlı geri dönüş potansiyeli</p>
+                <p className="text-green-50 text-sm">{ilce1 ? getAciklama(0, ilce1.yatirim_skoru, ilce1.randevu_sayisi) : '—'}</p>
               </div>
             </div>
           </div>
@@ -209,11 +218,11 @@ export default function KararOzeti() {
             <div className="space-y-3">
               <div className="pt-3">
                 <p className="text-blue-100 text-sm mb-1">Rol</p>
-                <p className="text-lg font-semibold">{getRol(1, ilce2.uygunluk_skoru)}</p>
+                <p className="text-lg font-semibold">{getRol(1, ilce2.yatirim_skoru)}</p>
               </div>
               <div>
                 <p className="text-blue-100 text-sm mb-1">Açıklama</p>
-                <p className="text-blue-50 text-sm">{getAciklama(1, ilce2.uygunluk_skoru, ilce2.randevu_sayisi)}</p>
+                <p className="text-blue-50 text-sm">{getAciklama(1, ilce2.yatirim_skoru, ilce2.randevu_sayisi)}</p>
               </div>
             </div>
           </div>
@@ -225,15 +234,19 @@ export default function KararOzeti() {
               </div>
               <TrendingUp className="w-6 h-6" />
             </div>
-            <h3 className="text-2xl font-bold mb-4">Bornova</h3>
+            <h3 className="text-2xl font-bold mb-4">—</h3>
             <div className="space-y-3">
               <div className="pt-3">
+                <p className="text-blue-100 text-sm mb-1">Yatırım Skoru</p>
+                <p className="text-2xl font-bold">— / 100</p>
+              </div>
+              <div className="pt-3 border-t border-blue-400/30">
                 <p className="text-blue-100 text-sm mb-1">Rol</p>
-                <p className="text-lg font-semibold">Büyüme Şubesi</p>
+                <p className="text-lg font-semibold">—</p>
               </div>
               <div>
                 <p className="text-blue-100 text-sm mb-1">Açıklama</p>
-                <p className="text-blue-50 text-sm">Yüksek müşteri hacmi, orta rekabet</p>
+                <p className="text-blue-50 text-sm">Veri yükleniyor...</p>
               </div>
             </div>
           </div>
@@ -252,11 +265,11 @@ export default function KararOzeti() {
             <div className="space-y-3">
               <div className="pt-3">
                 <p className="text-amber-100 text-sm mb-1">Rol</p>
-                <p className="text-lg font-semibold">{getRol(2, ilce3.uygunluk_skoru)}</p>
+                <p className="text-lg font-semibold">{getRol(2, ilce3.yatirim_skoru)}</p>
               </div>
               <div>
                 <p className="text-amber-100 text-sm mb-1">Açıklama</p>
-                <p className="text-amber-50 text-sm">{getAciklama(2, ilce3.uygunluk_skoru, ilce3.randevu_sayisi)}</p>
+                <p className="text-amber-50 text-sm">{getAciklama(2, ilce3.yatirim_skoru, ilce3.randevu_sayisi)}</p>
               </div>
             </div>
           </div>
@@ -268,15 +281,19 @@ export default function KararOzeti() {
               </div>
               <CheckCircle className="w-6 h-6" />
             </div>
-            <h3 className="text-2xl font-bold mb-4">Karşıyaka</h3>
+            <h3 className="text-2xl font-bold mb-4">—</h3>
             <div className="space-y-3">
               <div className="pt-3">
+                <p className="text-amber-100 text-sm mb-1">Yatırım Skoru</p>
+                <p className="text-2xl font-bold">— / 100</p>
+              </div>
+              <div className="pt-3 border-t border-amber-400/30">
                 <p className="text-amber-100 text-sm mb-1">Rol</p>
-                <p className="text-lg font-semibold">Premium Şube</p>
+                <p className="text-lg font-semibold">—</p>
               </div>
               <div>
                 <p className="text-amber-100 text-sm mb-1">Açıklama</p>
-                <p className="text-amber-50 text-sm">Gelir seviyesi yüksek müşteri profili</p>
+                <p className="text-amber-50 text-sm">Veri yükleniyor...</p>
               </div>
             </div>
           </div>
@@ -306,15 +323,15 @@ export default function KararOzeti() {
           <ul className="space-y-2 text-gray-700">
             <li className="flex items-center gap-2">
               <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
-              <span><strong>Faz 1 (0–6 Ay):</strong> {ilce1 ? ilce1.ilce_ad : 'Buca'}</span>
+              <span><strong>Faz 1 (0–6 Ay):</strong> {ilce1 ? ilce1.ilce_ad : '—'}</span>
             </li>
             <li className="flex items-center gap-2">
               <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
-              <span><strong>Faz 2 (6–12 Ay):</strong> {ilce2 ? ilce2.ilce_ad : 'Bornova'}</span>
+              <span><strong>Faz 2 (6–12 Ay):</strong> {ilce2 ? ilce2.ilce_ad : '—'}</span>
             </li>
             <li className="flex items-center gap-2">
               <span className="w-2 h-2 bg-purple-600 rounded-full"></span>
-              <span><strong>Faz 3 (12+ Ay):</strong> {ilce3 ? ilce3.ilce_ad : 'Karşıyaka'}</span>
+              <span><strong>Faz 3 (12+ Ay):</strong> {ilce3 ? ilce3.ilce_ad : '—'}</span>
             </li>
           </ul>
         </div>

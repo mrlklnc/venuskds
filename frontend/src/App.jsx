@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Analizler from "./pages/Analizler";
 import Simulasyon from "./pages/Simulasyon";
 import FinansalSenaryolar from "./pages/FinansalSenaryolar";
+import HaritaPage from "./pages/HaritaPage";
 import KararOzeti from "./pages/KararOzeti";
 import AppLayout from "./layout/AppLayout";
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/analizler" element={<Analizler />} />
         <Route path="/simulasyon" element={<Simulasyon />} />
         <Route path="/finansal-senaryolar" element={<FinansalSenaryolar />} />
+        <Route path="/harita" element={<HaritaPage />} />
         <Route path="/karar-ozeti" element={<KararOzeti />} />
       </Route>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
-import { getDashboardSummary } from "../services/dashboardService";
-import { getRandevuAylik, getMusteriIlce, getEnKarliHizmetler, getTalepRakipOrani, getIlceRandevu } from "../services/dssService";
+import { getDashboardSummary, getNufusYogunlugu, getTalepPayi } from "../services/dashboardService";
+import { getMusteriIlce, getEnKarliHizmetler, getTalepRakipOrani, getIlceRandevu } from "../services/dssService";
 import KPICard from "../components/KPICard";
 import { DollarSign, Users, Calendar, TrendingUp, TrendingDown, Minus, Lightbulb, MapPin, Star, Target } from "lucide-react";
 import { formatCurrency } from "../utils/format";
@@ -135,8 +135,9 @@ export default function Dashboard() {
     totalRevenue: 0,
   });
 
-  const [aylikRandevu, setAylikRandevu] = useState([]);
+  const [nufusYogunlugu, setNufusYogunlugu] = useState([]);
   const [musteriIlce, setMusteriIlce] = useState([]);
+  const [talepPayi, setTalepPayi] = useState([]);
   const [talepRakipIlceData, setTalepRakipIlceData] = useState([]);
   const [ilceUygunlukSkorlari, setIlceUygunlukSkorlari] = useState([]);
   const [enGucluIlce, setEnGucluIlce] = useState(null);
@@ -162,51 +163,22 @@ export default function Dashboard() {
           totalRevenue: Number(summary.toplamGelir ?? 0),
         });
 
-        // Aylık randevu verisini çek
+        // Nüfus yoğunluğu verisini çek
         try {
-          const aylikData = await getRandevuAylik();
-          console.log("✅ Aylık randevu verisi:", aylikData);
-          // Backend'den gelen veri formatı: { ay, toplam_randevu }
-          const formattedData = Array.isArray(aylikData) 
-            ? aylikData.map(item => ({
-                ay: item.ay || "",
-                randevuSayisi: Number(item.toplam_randevu) || 0
+          const nufusData = await getNufusYogunlugu();
+          console.log("✅ Nüfus yoğunluğu verisi:", nufusData);
+          // Backend'den gelen veri formatı: { label, value }
+          const formattedData = Array.isArray(nufusData) 
+            ? nufusData.map(item => ({
+                label: item.label || "",
+                value: Number(item.value) || 0
               }))
             : [];
           
-          // ═══════════════════════════════════════════════════════════════
-          // TAMAMLANMAMIŞ MEVCUT AYI HARİÇ TUT
-          // ═══════════════════════════════════════════════════════════════
-          const now = new Date();
-          const currentYear = now.getFullYear();
-          const currentMonth = now.getMonth(); // 0-11
-          const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-          const isMonthComplete = now.getDate() === lastDayOfMonth;
-          
-          // Türkçe ay isimleri (backend formatı: "Ocak 2024" veya "2024-01")
-          const turkceAylar = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 
-                              'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-          const currentMonthName = turkceAylar[currentMonth];
-          const currentYearStr = currentYear.toString();
-          
-          // Mevcut ay tamamlanmadıysa, o ayı filtrele
-          const filteredData = isMonthComplete 
-            ? formattedData 
-            : formattedData.filter(item => {
-                const ayStr = item.ay || "";
-                // "Ocak 2024" formatı kontrolü
-                const isTurkceFormat = ayStr.includes(currentMonthName) && ayStr.includes(currentYearStr);
-                // "2024-01" formatı kontrolü
-                const monthNumStr = String(currentMonth + 1).padStart(2, '0');
-                const isISOFormat = ayStr.startsWith(`${currentYear}-${monthNumStr}`);
-                // Mevcut ay değilse dahil et
-                return !isTurkceFormat && !isISOFormat;
-              });
-          
-          setAylikRandevu(filteredData);
+          setNufusYogunlugu(formattedData);
         } catch (e) {
-          console.error("❌ Aylık randevu veri hatası:", e);
-          setAylikRandevu([]);
+          console.error("❌ Nüfus yoğunluğu veri hatası:", e);
+          setNufusYogunlugu([]);
         }
 
         // Müşteri ilçe verisini çek
@@ -227,6 +199,24 @@ export default function Dashboard() {
           console.error("❌ Müşteri ilçe veri hatası:", e);
           setMusteriIlce([]);
           musteriIlceMap = new Map();
+        }
+
+        // Talep payı verisini çek
+        try {
+          const talepPayiData = await getTalepPayi();
+          console.log("✅ Talep payı verisi:", talepPayiData);
+          // Backend'den gelen veri formatı: { label, value }
+          const formattedData = Array.isArray(talepPayiData) 
+            ? talepPayiData.map(item => ({
+                label: item.label || "",
+                value: Number(item.value) || 0
+              }))
+            : [];
+          
+          setTalepPayi(formattedData);
+        } catch (e) {
+          console.error("❌ Talep payı veri hatası:", e);
+          setTalepPayi([]);
         }
 
         // Mevcut şube ilçesi (hesaplamalarda hariç tutulacak)
@@ -410,45 +400,6 @@ export default function Dashboard() {
       });
     }
 
-    // 2. Randevu trendi artış/azalış yorumu
-    // Backend'den gelen veri DESC sıralı (en yeni ilk sırada)
-    if (aylikRandevu && aylikRandevu.length >= 2) {
-      const enEskiAy = aylikRandevu[aylikRandevu.length - 1]; // En eski ay (zaman içinde başlangıç)
-      const enYeniAy = aylikRandevu[0]; // En yeni ay (zaman içinde son)
-      
-      if (enEskiAy && enYeniAy) {
-        const eskiAySayi = enEskiAy.randevuSayisi || 0;
-        const yeniAySayi = enYeniAy.randevuSayisi || 0;
-        
-        let trendYorumu = "";
-        let trendIcon = Minus;
-        let trendColor = "gray";
-        
-        if (yeniAySayi > eskiAySayi) {
-          const artis = yeniAySayi - eskiAySayi;
-          const yuzde = eskiAySayi > 0 ? ((artis / eskiAySayi) * 100).toFixed(1) : 100;
-          trendYorumu = `Randevu sayısı son dönemde %${yuzde} artış gösterdi (${eskiAySayi} → ${yeniAySayi}).`;
-          trendIcon = TrendingUp;
-          trendColor = "green";
-        } else if (yeniAySayi < eskiAySayi) {
-          const azalis = eskiAySayi - yeniAySayi;
-          const yuzde = eskiAySayi > 0 ? ((azalis / eskiAySayi) * 100).toFixed(1) : 0;
-          trendYorumu = `Randevu sayısı son dönemde %${yuzde} azalış gösterdi (${eskiAySayi} → ${yeniAySayi}).`;
-          trendIcon = TrendingDown;
-          trendColor = "red";
-        } else {
-          trendYorumu = `Randevu sayısı sabit kaldı (${eskiAySayi} randevu).`;
-        }
-        
-        ozetler.push({
-          type: "trend",
-          title: "Randevu Trendi",
-          content: trendYorumu,
-          icon: trendIcon,
-          color: trendColor
-        });
-      }
-    }
 
     // 3. Ortalama randevu değerine dair yorum
     if (stats.totalAppointments > 0) {
@@ -473,7 +424,7 @@ export default function Dashboard() {
     }
 
     return ozetler;
-  }, [musteriIlce, aylikRandevu, stats]);
+  }, [musteriIlce, stats]);
 
   if (loading) {
     return <div className="p-10 text-xl">Yükleniyor...</div>;
@@ -497,10 +448,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-3xl font-semibold mb-2 text-purple-700">
-        Dashboard - 2025
-      </h1>
-      <p className="text-sm text-gray-500 mb-8">Bu ekran genel durumu ve kısa vadeli aksiyon fırsatlarını özetler.</p>
+
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <KPICard
@@ -538,22 +486,22 @@ export default function Dashboard() {
 
       {/* Grafik Satırı - Yan Yana */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 items-stretch">
-        {/* Sol: Aylık Randevu Trendi - Premium Design */}
+        {/* Sol: Nüfus Yoğunluğu (İlçe Bazlı) - Premium Design */}
         <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-6 shadow-sm">
           <h2 className="text-base font-medium mb-2 text-gray-800">
-            Randevu Trendi (Aylık)
+            Nüfus Yoğunluğu (İlçe Bazlı)
           </h2>
-          <p className="text-xs text-gray-500 mb-4">Aylık randevu sayısı değişimi</p>
-          {aylikRandevu && aylikRandevu.length > 0 ? (() => {
+          <p className="text-xs text-gray-500 mb-4">İlçelere göre km² başına düşen nüfus</p>
+          {nufusYogunlugu && nufusYogunlugu.length > 0 ? (() => {
             // En yüksek ve en düşük noktaları bul
-            const maxValue = Math.max(...aylikRandevu.map(d => d.randevuSayisi || 0));
-            const minValue = Math.min(...aylikRandevu.map(d => d.randevuSayisi || Infinity));
-            const maxItem = aylikRandevu.find(d => d.randevuSayisi === maxValue);
-            const minItem = aylikRandevu.find(d => d.randevuSayisi === minValue);
+            const maxValue = Math.max(...nufusYogunlugu.map(d => d.value || 0));
+            const minValue = Math.min(...nufusYogunlugu.map(d => d.value || Infinity));
+            const maxItem = nufusYogunlugu.find(d => d.value === maxValue);
+            const minItem = nufusYogunlugu.find(d => d.value === minValue);
             
             return (
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={aylikRandevu} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart data={nufusYogunlugu} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorRandevu" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.15} />
@@ -567,7 +515,7 @@ export default function Dashboard() {
                   </defs>
                   <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
                   <XAxis 
-                    dataKey="ay" 
+                    dataKey="label" 
                     tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
                     axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
                     tickLine={{ stroke: '#c4b5fd' }}
@@ -588,19 +536,19 @@ export default function Dashboard() {
                     }}
                     labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
                     itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
-                    formatter={(value) => [`${value} randevu`, '']}
-                    labelFormatter={(label) => `📅 ${label}`}
+                    formatter={(value) => [`Nüfus Yoğunluğu: ${value.toLocaleString('tr-TR')} kişi/km²`, '']}
+                    labelFormatter={(label) => `📍 ${label}`}
                   />
                   <Area
                     type="monotone"
-                    dataKey="randevuSayisi"
+                    dataKey="value"
                     stroke="url(#strokeGradient)"
                     strokeWidth={3}
                     fill="url(#colorRandevu)"
                     dot={(props) => {
                       const { cx, cy, payload } = props;
-                      const isMax = payload.randevuSayisi === maxValue;
-                      const isMin = payload.randevuSayisi === minValue;
+                      const isMax = payload.value === maxValue;
+                      const isMin = payload.value === minValue;
                       
                       if (isMax) {
                         return (
@@ -654,97 +602,89 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Sağ: En Yoğun İlçeler - Premium Style */}
+        {/* Sağ: Talep Payı (İlçe Bazlı) - Premium Style */}
         <div className="bg-gradient-to-br from-white to-purple-50/40 rounded-xl border border-purple-100 p-6 shadow-sm">
           <h2 className="text-base font-medium mb-2 text-gray-800">
-            Müşteri Sayısı (İlçe)
+            Talep Payı (İlçe Bazlı)
           </h2>
-          <p className="text-xs text-gray-500 mb-4">En yoğun 5 ilçe</p>
-          {musteriIlce && musteriIlce.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={musteriIlce}>
-                <defs>
-                  <linearGradient id="barGradientMusteri" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#7c3aed" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.8} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
-                <XAxis 
-                  dataKey="ilce" 
-                  tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
-                  angle={-45}
-                  textAnchor="end"
-                  height={100}
-                  axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
-                  tickLine={{ stroke: '#c4b5fd' }}
-                />
-                <YAxis 
-                  tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
-                  axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
-                  tickLine={{ stroke: '#c4b5fd' }}
-                />
-                <Tooltip 
-                  contentStyle={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    backdropFilter: 'blur(8px)',
-                    border: '1px solid #c4b5fd',
-                    borderRadius: '12px',
-                    padding: '14px 18px',
-                    boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
-                  }}
-                  labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
-                  itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
-                  formatter={(value) => [`${value} müşteri`, '']}
-                  labelFormatter={(label) => `📍 ${label}`}
-                  cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
-                />
-                <Bar 
-                  dataKey="musteriSayisi" 
-                  radius={[8, 8, 0, 0]}
-                >
-                  {(() => {
-                    const maxValue = Math.max(...musteriIlce.map(item => item.musteriSayisi || 0), 1);
-                    // Mor paleti - gradient tonları
-                    const MOR_PALETI = {
-                      cokAcik: '#ede9fe',
-                      acik: '#ddd6fe',
-                      orta: '#c4b5fd',
-                      koyu: '#a78bfa',
-                      enKoyu: '#8b5cf6',
-                      cokKoyu: '#7c3aed'
-                    };
-                    return musteriIlce.map((entry, index) => {
-                      const musteriSayisi = entry.musteriSayisi || 0;
-                      const isMax = musteriSayisi === maxValue;
-                      const ratio = maxValue > 0 ? musteriSayisi / maxValue : 0;
-                      let fillColor;
-                      if (isMax) {
-                        fillColor = MOR_PALETI.cokKoyu;
-                      } else if (ratio >= 0.8) {
-                        fillColor = MOR_PALETI.enKoyu;
-                      } else if (ratio >= 0.6) {
-                        fillColor = MOR_PALETI.koyu;
-                      } else if (ratio >= 0.4) {
-                        fillColor = MOR_PALETI.orta;
-                      } else if (ratio >= 0.2) {
-                        fillColor = MOR_PALETI.acik;
-                      } else {
-                        fillColor = MOR_PALETI.cokAcik;
-                      }
+          <p className="text-xs text-gray-500 mb-4">Toplam randevu içindeki yüzdesel dağılım</p>
+          {talepPayi && talepPayi.length > 0 ? (() => {
+            // Simülasyon sayfasındaki ile aynı renk paleti ve mantık
+            const MOR_PALETI = {
+              cokAcik: '#e9d5ff',
+              acik: '#c4b5fd',
+              orta: '#a78bfa',
+              koyu: '#8b5cf6',
+              enKoyu: '#7c3aed',
+              cokKoyu: '#6d28d9'
+            };
+
+            const getBarColor = (value, maxValue, isHighlight = false) => {
+              if (isHighlight) return MOR_PALETI.cokKoyu;
+              
+              const ratio = maxValue > 0 ? value / maxValue : 0;
+              if (ratio >= 0.8) return MOR_PALETI.enKoyu;
+              if (ratio >= 0.6) return MOR_PALETI.koyu;
+              if (ratio >= 0.4) return MOR_PALETI.orta;
+              if (ratio >= 0.2) return MOR_PALETI.acik;
+              return MOR_PALETI.cokAcik;
+            };
+
+            const maxValue = Math.max(...talepPayi.map(item => item.value || 0), 1);
+
+            return (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={talepPayi} margin={{ top: 10, right: 10, left: 5, bottom: 50 }}>
+                  <CartesianGrid strokeDasharray="4 4" stroke="#c9b8ff" strokeOpacity={0.2} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
+                    angle={-45}
+                    textAnchor="end"
+                    height={70}
+                    axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                    tickLine={{ stroke: '#c4b5fd' }}
+                  />
+                  <YAxis 
+                    tick={{ fill: '#5b21b6', fontSize: 11, fontWeight: 500 }}
+                    axisLine={{ stroke: '#c4b5fd', strokeWidth: 1 }}
+                    tickLine={{ stroke: '#c4b5fd' }}
+                    width={45}
+                    label={{ value: '%', angle: -90, position: 'insideLeft', fill: '#5b21b6', fontSize: 11, fontWeight: 500, dx: -5 }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                      backdropFilter: 'blur(8px)',
+                      border: '1px solid #c4b5fd',
+                      borderRadius: '12px',
+                      padding: '14px 18px',
+                      boxShadow: '0 10px 25px -5px rgba(124, 58, 237, 0.2), 0 8px 10px -6px rgba(124, 58, 237, 0.1)'
+                    }}
+                    labelStyle={{ color: '#5b21b6', fontWeight: 700, fontSize: '14px', marginBottom: '6px' }}
+                    itemStyle={{ color: '#7c3aed', fontSize: '13px', fontWeight: 500 }}
+                    formatter={(value) => [`${Number(value).toFixed(2)}%`, '']}
+                    labelFormatter={(label) => `📊 ${label}`}
+                    cursor={{ fill: 'rgba(124, 58, 237, 0.08)' }}
+                  />
+                  <Bar dataKey="value" name="Talep Payı (%)" radius={[8, 8, 0, 0]}>
+                    {talepPayi.map((entry, index) => {
+                      const value = entry.value || 0;
+                      const isMax = value === maxValue;
+                      const fillColor = getBarColor(value, maxValue, isMax);
                       return (
-                        <Cell 
-                          key={`cell-${index}`} 
+                        <Cell
+                          key={`cell-${index}`}
                           fill={fillColor}
                           style={{ filter: isMax ? 'drop-shadow(0 2px 4px rgba(124, 58, 237, 0.3))' : 'none' }}
                         />
                       );
-                    });
-                  })()}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
+                    })}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            );
+          })() : (
             <div className="flex items-center justify-center h-64 text-gray-500">
               <p>Henüz yeterli veri yok</p>
             </div>

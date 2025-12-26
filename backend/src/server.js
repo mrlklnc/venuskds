@@ -5,20 +5,9 @@ import express from "express";
 import cors from "cors";
 import pool from "./lib/db.js";
 
-// Routes
-import musteriRoutes from "./routes/musteri.js";
-import randevuRoutes from "./routes/randevu.js";
-import hizmetRoutes from "./routes/hizmet.js";
-import ilceRoutes from "./routes/ilce.js";
-import kampanyaRoutes from "./routes/kampanya.js";
-import memnuniyetRoutes from "./routes/memnuniyet.js";
-import masrafRoutes from "./routes/masraf.js";
-import rakipRoutes from "./routes/rakip.js";
-import subeRoutes from "./routes/sube.js";
-import dssRoutes from "./routes/dssRoutes.js";
-import dashboardRoutes from "./routes/dashboardRoutes.js";
-import analizlerRoutes from "./routes/analizlerRoutes.js";
-import simulasyonRoutes from "./routes/simulasyonRoutes.js";
+import routes from "./routes/index.js";
+
+app.use("/api", routes);
 
 const app = express();
 
@@ -54,6 +43,8 @@ app.use("/api/dss", dssRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analizler", analizlerRoutes);
 app.use("/api/simulasyon", simulasyonRoutes);
+app.use("/api/nufus-yogunlugu", nufusYogunluguRoutes);
+app.use("/api/talep-payi", talepPayiRoutes);
 
 /* HEALTH CHECK */
 app.get("/api/health", (req, res) => {

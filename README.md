@@ -2,7 +2,7 @@
 
 A comprehensive Decision Support System web application for Venüs Güzellik Salonu built with Node.js, Express, React, and MySQL.
 
-## 🎯 Project Overview
+##  Project Overview
 
 This DSS helps answer critical business questions:
 - Which İzmir district is best for opening a new branch?
@@ -13,7 +13,29 @@ This DSS helps answer critical business questions:
 - Competitor density & investment risk
 - Expected revenue & ROI for new branch
 
-## 🛠️ Technology Stack
+
+##  Scenario Description
+
+Venüs Beauty Salon is a business planning to expand by opening new branches across İzmir.
+This Decision Support System (DSS) enables business managers to make data-driven decisions
+by providing analytical insights based on historical data.
+
+The system supports the following decision-making scenarios:
+
+- Identifying the most suitable district for opening a new branch
+- Analyzing the most demanded and most profitable services
+- Measuring the effectiveness of marketing campaigns
+- Evaluating customer satisfaction levels across services
+- Analyzing customer demand by district
+- Assessing investment risk based on competitor density
+- Estimating expected revenue and ROI for potential new branches
+
+The DSS utilizes historical data such as appointments, customers, services, campaigns,
+and satisfaction records to generate visual and numerical insights that support
+strategic business decisions.
+
+
+##  Technology Stack
 
 ### Backend
 - **Node.js** + **Express** - REST API server
@@ -26,7 +48,7 @@ This DSS helps answer critical business questions:
 - **Chart.js** - Data visualization
 - **Zustand** - State management (ready for use)
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 proje/
@@ -57,7 +79,7 @@ proje/
     └── package.json
 ```
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Node.js (v18+)
@@ -123,7 +145,7 @@ npm run dev
 
 The frontend will run on `http://localhost:5173`
 
-## 📊 Database Schema
+##  Database Schema
 
 The system uses the following main tables:
 
@@ -137,7 +159,7 @@ The system uses the following main tables:
 - **sube** - Branches (sube_id, sube_ad, adres, telefon, acilis_tarihi)
 - **sube_masraf** - Branch Expenses (masraf_id, sube_id, tutar, tarih, aciklama)
 
-## 🔌 API Endpoints
+##  API Endpoints
 
 ### Data Endpoints
 All endpoints support CRUD operations:
@@ -161,7 +183,7 @@ All endpoints support CRUD operations:
 - `GET /api/dss/competitor-analysis` - Competitor & risk analysis
 - `GET /api/dss/branch-roi?ilce_id=X` - ROI projection for new branch
 
-## 📈 Features
+##  Features
 
 ### Dashboard
 - Total appointments and revenue
@@ -185,7 +207,7 @@ All endpoints support CRUD operations:
 - Pagination support
 - Date range filtering
 
-## 🎨 UI Components
+##  UI Components
 
 - Modern, responsive design with TailwindCSS
 - Interactive charts using Chart.js
@@ -193,14 +215,14 @@ All endpoints support CRUD operations:
 - Data tables with sorting and pagination
 - Modal forms for create/edit operations
 
-## 📝 Notes
+##  Notes
 
 - The seed script generates realistic 2025 data for testing
 - All dates are formatted in Turkish locale
 - Currency is displayed in Turkish Lira (TRY)
 - The system is designed for İzmir districts but can be adapted
 
-## 🔧 Development
+##  Development
 
 ### Backend Development
 ```bash
@@ -221,11 +243,11 @@ npm run prisma:migrate  # Create new migration
 npm run prisma:generate # Regenerate Prisma client
 ```
 
-## 📄 License
+##  License
 
 This project is proprietary software for Venüs Güzellik Salonu.
 
-## 👥 Support
+##  Support
 
 For issues or questions, please contact the development team.
 

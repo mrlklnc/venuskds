@@ -159,6 +159,11 @@ The system uses the following main tables:
 - **sube** - Branches (sube_id, sube_ad, adres, telefon, acilis_tarihi)
 - **sube_masraf** - Branch Expenses (masraf_id, sube_id, tutar, tarih, aciklama)
 
+
+## ER Diyagramı
+
+![ER Diyagramı](assets/erdiyagramı.png)
+
 ##  API Endpoints
 
 ### Data Endpoints
